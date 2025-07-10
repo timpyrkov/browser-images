@@ -235,9 +235,22 @@ If you want, I can review your timer code to make sure it’s using the alarms A
 
 
 
+########################################################################################################################################################################
+  BLANC IMAGE
+########################################################################################################################################################################
 
 
 
+This is an excellent set of questions. You're diving into some of the more complex aspects of web scraping and cross-browser compatibility. Let's break these down.
+
+1. The "White Image" Problem on Pinterest
+You've described a very common and clever trick that websites use to protect their images.
+
+What it means: The image you see on the page is often not a simple <img> tag. It's frequently a high-resolution CSS background-image applied to an element (<div>). The actual <img> element in that spot might be a transparent placeholder. When you right-click and save, you're saving the placeholder, which results in a blank or white image.
+Can we handle it? Yes, but it requires making our 
+content.js
+ script smarter. We can't read the downloaded file from the disk to check its pixels due to security restrictions. The workaround is to improve how we find the image on the page in the first place. Instead of only looking for <img> tags, we would need to inspect the CSS background-image property of elements as well. This is more advanced and often needs to be tailored for specific sites like Pinterest.
+Let's put a pin in this for now. It's a great feature to add, but first, let's get the extension running perfectly in Chrome.
 
 
 

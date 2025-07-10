@@ -18,26 +18,45 @@ A cross-browser extension for Firefox and Google Chrome that scans your open tab
 
 ---
 
-## How to Install for Development
+## How to Build and Install for Development
 
-This extension is not yet on any official add-on store. To install it for development or personal use, you can load it as an unpacked extension in your browser of choice.
+This project uses a simple Node.js build script to create browser-specific packages. This is required because Chrome and Firefox have different `manifest.json` requirements.
 
-### For Google Chrome
+### Prerequisites
 
-1.  Open Chrome and navigate to `chrome://extensions`.
-2.  In the top-right corner, enable **"Developer mode"**.
-3.  Click the **"Load unpacked"** button that appears on the top-left.
-4.  Navigate to this project's folder and select it.
-5.  The extension icon will appear in your toolbar, and it is now ready to use.
+You must have [Node.js](https://nodejs.org/) installed to run the build script.
 
-### For Firefox (Temporary Add-on)
+### Step 1: Build the Extension
 
-1.  Open Firefox and navigate to `about:debugging#/runtime/this-firefox`.
-2.  Click the **"Load Temporary Add-on..."** button.
-3.  Navigate to this project's folder and select the `manifest.json` file.
-4.  The extension icon will appear in your toolbar, and it is now ready to use.
+From the root of the project folder, open your terminal and run one of the following commands:
 
-*Note: To apply any code changes, you must reload the extension from its respective management page (`chrome://extensions` or `about:debugging`). In Firefox, temporary add-ons are removed when you close the browser.* 
+-   **For Firefox:**
+    ```bash
+    npm run build:firefox
+    ```
+-   **For Chrome (and other Chromium browsers):**
+    ```bash
+    npm run build:chrome
+    ```
+
+This will create a `dist/[browser]` folder (e.g., `dist/firefox`) containing the ready-to-install extension package.
+
+### Step 2: Install the Extension
+
+Now, load the generated package into your browser:
+
+-   **In Firefox:**
+    1.  Navigate to `about:debugging#/runtime/this-firefox`.
+    2.  Click **"Load Temporary Add-on..."**
+    3.  Select the `manifest.json` file inside the `dist/firefox` folder.
+
+-   **In Chrome:**
+    1.  Navigate to `chrome://extensions`.
+    2.  Enable **"Developer mode"**.
+    3.  Click **"Load unpacked"**.
+    4.  Select the entire `dist/chrome` folder.
+
+To apply any code changes you make in the `src` folder, you must re-run the build command and then reload the extension in your browser. 
 
 ### Permanent Installation in Firefox (Unsigned Add-on)
 

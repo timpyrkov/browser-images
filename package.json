@@ -1,0 +1,14 @@
+{
+  "name": "download-image-gallery-tabs",
+  "version": "1.0.0",
+  "description": "A cross-browser extension for downloading images from gallery tabs.",
+  "private": true,
+  "scripts": {
+    "build:firefox": "node build.js firefox",
+    "build:chrome": "node build.js chrome",
+    "build": "npm run build:firefox && npm run build:chrome",
+    "clean": "rm -rf dist"
+  },
+  "author": "Tim Pyrkov",
+  "license": "MIT"
+}
