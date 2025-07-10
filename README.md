@@ -1,4 +1,7 @@
-# Image Gallery Tab Downloader
+<h1><p align="left">
+  <img src="https://github.com/timpyrkov/download-img/blob/master/icons/icon-128.png?raw=true" alt="logo" height="30" style="vertical-align: middle; margin-right: 10px;">
+  <span style="font-size:2.5em; vertical-align: middle;"><b>Download Images from Gallery Tabs</b></span>
+</p></h1>
 
 A cross-browser extension for Firefox and Google Chrome that scans your open tabs for image gallery pages, downloads the main image from each, and optionally closes the tab after the download is complete.
 
