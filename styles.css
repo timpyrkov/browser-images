@@ -1,0 +1,312 @@
+/* styles.css */
+/* Styles for the extension's options/settings page */
+/* Beginner-friendly documentation included */
+
+/* =========================================================================
+   CUSTOM COLOR PALETTES & UTILITIES
+============================================================================ */
+:root {
+  /* Primary Colors Palette */
+  --primary-1: #bcdd00;
+  --primary-2: #88a000;
+  --primary-3: #546300;
+  /* Accent Colors Palette */
+  --accent-1: #ffbb3d;
+  --accent-2: #ffa500;
+  --accent-3: #c27d00;
+  /* Gold checkbox variants */
+  --gold-light: #ffd700;
+  --gold-medium: #ffa500;
+  --gold-dark: #daa520;
+  --gold-darker: #b8860b;
+  /* Background Colors */
+  --background: #181a20;
+  --surface: #23242a;
+  --border: #2a2c32;
+  --shadow: 0 2px 8px rgba(0,0,0,0.25);
+  --foreground: #e6e6e6;
+  --text-secondary: #b0b8c5;
+  --input-bg: #23242a;
+  --input-border: #35373e;
+  --input-focus: var(--primary-1);
+  --success: var(--primary-2);
+  --error: var(--accent-2);
+  --warning: var(--accent-2);
+  --info: var(--primary-2);
+}
+
+@media (prefers-color-scheme: light) {
+:root {
+  --background: #f9f9fb;
+  --surface: #fff;
+  --border: #e0e0e6;
+  --foreground: #222;
+  --text-secondary: #5a5a6e;
+  --input-bg: #fff;
+  --input-border: #b0b8c5;
+}
+}
+
+/* =========================================================================
+   GRADIENT TEXT STYLES
+============================================================================ */
+/* Gradient text utility */
+.gradient-text {
+background: linear-gradient(60deg, var(--primary-1), var(--primary-2), var(--primary-3));
+-webkit-background-clip: text;
+-webkit-text-fill-color: transparent;
+background-clip: text;
+color: transparent;
+}
+.gradient-text-accent {
+background: linear-gradient(60deg, var(--accent-1), var(--accent-2), var(--accent-3));
+-webkit-background-clip: text;
+-webkit-text-fill-color: transparent;
+background-clip: text;
+color: transparent;
+}
+
+/* =========================================================================
+   CUSTOM CHECKBOX STYLES
+============================================================================ */
+/* Custom checkbox appearance */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--gold-medium);
+  border-radius: 4px;
+  background: var(--surface);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  margin-right: 8px;
+}
+
+/* Checked state - Gold fill */
+input[type="checkbox"]:checked {
+  background: linear-gradient(135deg, var(--gold-light), var(--gold-medium));
+  border-color: var(--gold-dark);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+/* Checkmark for checked state */
+input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #111;
+  font-size: 14px;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+/* Hover state */
+input[type="checkbox"]:hover {
+  border-color: var(--gold-light);
+  box-shadow: 0 0 6px rgba(255, 215, 0, 0.2);
+}
+
+/* Focus state */
+input[type="checkbox"]:focus {
+  outline: none;
+  border-color: var(--gold-light);
+  box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.2);
+}
+
+/* Disabled state */
+input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* =========================================================================
+   CUSTOM BUTTON STYLES
+============================================================================ */
+.save-container {
+  display: flex;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px; /* Space between buttons */
+  margin-top: 1rem;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1.5px solid var(--primary-1);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-width 0.15s, background 0.15s, border-color 0.15s;
+  box-shadow: none;
+  position: relative;
+  text-decoration: none;
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn:hover, .btn:focus {
+  border-width: 2px;
+  background: #181a20cc;
+}
+
+/* Ensure button loses focus styling after save operation */
+.btn:not(:focus):not(:hover) {
+  border-width: 1.5px;
+  background: var(--surface);
+}
+.btn-green {
+  border: 2px solid var(--primary-2);
+}
+.btn-green:hover, .btn-green:focus {
+  outline: 3px solid var(--primary-1); /* Outline instead of border */
+  outline-offset: -1px;
+}
+.btn-green .gradient-text {
+  background: linear-gradient(60deg, var(--primary-2), var(--primary-1));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+.btn-yellow {
+  border: 2px solid var(--accent-2);
+}
+.btn-yellow:hover, .btn-yellow:focus {
+  outline: 3px solid var(--accent-1); /* Outline instead of border */
+  outline-offset: -1px;
+}
+.btn-yellow .gradient-text {
+  background: linear-gradient(60deg, var(--accent-2), var(--accent-1));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+.btn-grey {
+  border: 2px solid #888;
+}
+.btn-grey:hover, .btn-grey:focus {
+  outline: 3px solid #aaa; /* Outline instead of border */
+  outline-offset: -1px;
+}
+.btn-grey .gradient-text {
+  background: linear-gradient(60deg, #bbb, #eee);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+
+/* =========================================================================
+   GENERAL LAYOUT & TYPOGRAPHY
+============================================================================ */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  margin: 0;
+  padding: 1rem;
+  min-width: 280px; /* Minimum width for popup and options */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+
+.popup-container {
+  text-align: center;
+}
+
+.container {
+  width: 100%;
+  max-width: 400px;
+  padding: 2em;
+  background-color: var(--surface);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+h1 {
+  text-align: center;
+  font-size: 2em;
+  margin-bottom: 1em;
+}
+
+/* =========================================================================
+   FORM STYLES
+============================================================================ */
+.form-group {
+  margin-bottom: 1.5em;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.5em;
+}
+
+.form-group.checkbox-group {
+  display: flex;
+  align-items: center;
+}
+
+.form-group.checkbox-group label {
+  margin-bottom: 0;
+  cursor: pointer;
+}
+
+input[type="text"] {
+  width: 100%;
+  padding: 10px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--foreground);
+  border-radius: 6px;
+  font-size: 16px;
+  transition: border-color 0.2s;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--input-focus) 20%, transparent);
+}
+
+.hint-text {
+  display: block;
+  margin-top: 0.5em;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.divider {
+  border: none;
+  height: 1px;
+  background-color: var(--border);
+  margin: 2em 0;
+}
+
+#sites-list .checkbox-group {
+  margin-bottom: 0.75em;
+}

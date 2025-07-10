@@ -1,0 +1,45 @@
+<!-- options.html -->
+<!-- Settings page for the extension -->
+<!-- Lets user choose download folder and whether to close tabs after download -->
+<!-- Beginner-friendly documentation included -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Image Gallery Tab Downloader Settings</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1 class="gradient-text">Image Downloader Settings</h1>
+    <form id="settings-form">
+      <div class="form-group">
+        <label for="folder">Download Folder Name</label>
+        <input type="text" id="folder" name="folder" placeholder="e.g., Gallery" required>
+        <small class="hint-text">This folder will be created inside your browser's Downloads folder.</small>
+      </div>
+      <div class="form-group checkbox-group">
+        <input type="checkbox" id="closeTabs" name="closeTabs">
+        <label for="closeTabs">Close tab after downloading</label>
+      </div>
+
+      <hr class="divider">
+
+      <div class="form-group">
+        <label>Scan on these sites:</label>
+        <div id="sites-list"></div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="save-container">
+        <button type="submit" class="btn btn-green">
+          <span class="gradient-text">Save Settings</span>
+        </button>
+      </div>
+    </form>
+  </div>
+  <script src="defaults.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
