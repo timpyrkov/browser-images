@@ -1,5 +1,17 @@
 // background.js
 // Main background script for the extension
+
+/**
+ * Pauses execution for a random amount of time to avoid overwhelming servers.
+ * @param {number} minSeconds The minimum seconds to wait.
+ * @param {number} maxSeconds The maximum seconds to wait.
+ * @returns {Promise<void>}
+ */
+function delay(minSeconds, maxSeconds) {
+  const ms = (Math.random() * (maxSeconds - minSeconds) + minSeconds) * 1000;
+  console.log(`[Download] Waiting for ${Math.round(ms / 1000)}s...`);
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 // Responsible for scanning tabs, downloading images, and closing tabs if needed
 // Beginner-friendly documentation included
 
@@ -48,16 +60,32 @@ async function downloadImagesSequentially(tabs, allowedSites, closeTabAfterDownl
       const isAllowed = (allowedSites.all_sites === true) || (allowedSites[domain] === true);
       console.log(`[Download] Tab ${tab.id}: domain=${domain}, isAllowed=${isAllowed}`);
       if (isAllowed) {
-        // Ask content script for main image
-        console.log(`[Download] Sending 'find-main-image' to tab ${tab.id}`);
-        await new Promise((resolve) => {
-          chrome.tabs.sendMessage(tab.id, { command: 'find-main-image' }, (response) => {
-            if (chrome.runtime.lastError) {
-              console.warn(`[Download] Content script not present in tab ${tab.id}: ${chrome.runtime.lastError.message}`);
-            }
-            setTimeout(resolve, 2000);
+        try {
+          // Programmatically inject the content script to ensure it's available
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content.js'],
           });
-        });
+
+          console.log(`[Download] Sending 'find-main-image' to tab ${tab.id}`);
+          // Send a message to the now-injected content script
+          const response = await chrome.tabs.sendMessage(tab.id, {
+            command: 'find-main-image',
+          });
+
+          if (response && response.status === 'found-image') {
+            // If an image was found, download it
+            await downloadImage(response.imageUrl, response.filename, settings, tab.id);
+          } else {
+            console.log(`[Download] No image found in tab ${tab.id}`);
+          }
+          // Always wait after a download attempt (even if no image found)
+          await delay(1, 3);
+        } catch (error) {
+          // This error can happen on special browser pages (e.g., about:, chrome://)
+          // where content script injection is not allowed.
+          console.log(`[Download] Could not inject or communicate with tab ${tab.id}: ${error.message}`);
+        }
       } else {
         console.log(`[Download] Skipping tab ${tab.id} (domain not allowed)`);
       }

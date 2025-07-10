@@ -8,39 +8,39 @@ function getMainImageUrl() {
     const hostname = location.hostname;
   
     const siteRules = {
-      "imgur.com": () =>
+      "artstation.com": () =>
+        document.querySelector("meta[property='og:image']")?.content,
+
+      "deviantart.com": () =>
+        document.querySelector("img[data-hook='deviation_image']")?.src,
+  
+      "pinterest.com": () =>
+        document.querySelector("meta[property='og:image']")?.content,
+  
+      "instagram.com": () =>
         document.querySelector("meta[property='og:image']")?.content,
   
       "flickr.com": () =>
         document.querySelector("meta[property='og:image']")?.content ||
         document.querySelector("img.main-photo")?.src,
   
-      "deviantart.com": () =>
-        document.querySelector("img[data-hook='deviation_image']")?.src,
-  
-      "artstation.com": () =>
-        document.querySelector("meta[property='og:image']")?.content,
-      
-      "instagram.com": () =>
-        document.querySelector("meta[property='og:image']")?.content,
-  
-      "pinterest.com": () =>
-        document.querySelector("meta[property='og:image']")?.content,
-  
       "tumblr.com": () =>
         document.querySelector("meta[property='og:image']")?.content,
   
-      "reddit.com": () =>
-        document.querySelector("img[alt='Post image']")?.src ||
-        document.querySelector("meta[property='og:image']")?.content,
-  
-      "unsplash.com": () =>
+      "imgur.com": () =>
         document.querySelector("meta[property='og:image']")?.content,
   
       "pixiv.net": () =>
         document.querySelector("meta[property='og:image']")?.content,
     
       "500px.com": () =>
+        document.querySelector("meta[property='og:image']")?.content,
+
+      "reddit.com": () =>
+        document.querySelector("img[alt='Post image']")?.src ||
+        document.querySelector("meta[property='og:image']")?.content,
+  
+      "unsplash.com": () =>
         document.querySelector("meta[property='og:image']")?.content
 };
   
@@ -68,11 +68,38 @@ function getMainImageUrl() {
 // Helper: Determine if this is a main image view (not a gallery) based on URL structure
 function isMainImageViewUrl(hostname, pathname) {
   if (hostname.includes('artstation.com')) {
-    // ArtStation: main image view contains '/artwork', gallery does not
-    return pathname.includes('/artwork');
+    // ArtStation: main image view contains '/artwork/', gallery does not
+    return pathname.includes('/artwork/');
   } else if (hostname.includes('deviantart.com')) {
-    // DeviantArt: gallery contains '/gallery', main image view does not
-    return !pathname.includes('/gallery');
+    // DeviantArt: gallery contains '/gallery/', main image view does not
+    return !pathname.includes('/gallery/');
+  } else if (hostname.includes('pinterest.com')) {
+    // Pinterest: main image view contains '/pin/', gallery does not
+    return pathname.includes('/pin/');
+  } else if (hostname.includes('instagram.com')) {
+    // Instagram: main image view contains '/p/', gallery does not
+    return pathname.includes('/p/');
+  } else if (hostname.includes('flickr.com')) {
+    // Flickr: main image view contains '/photo/', gallery does not
+    return pathname.includes('/photo/');
+  } else if (hostname.includes('tumblr.com')) {
+    // Tumblr: main image view contains '/post/', gallery does not
+    return (pathname.split('/').length - 1) === 4;
+  } else if (hostname.includes('imgur.com')) {
+    // Imgur: main image view contains '/gallery/', gallery does not
+    return pathname.includes('/gallery/');
+  } else if (hostname.includes('pixiv.net')) {
+    // Pixiv: main image view contains '/artworks/', gallery does not
+    return pathname.includes('/artworks/');
+  } else if (hostname.includes('500px.com')) {
+    // 500px: main image view contains '/photo/', gallery does not
+    return pathname.includes('/photo/');
+  } else if (hostname.includes('reddit.com')) {
+    // Reddit: main image view contains '/gallery/', gallery does not
+    return pathname.includes('/gallery/');
+  } else if (hostname.includes('unsplash.com')) {
+    // Unsplash: main image view contains '/photo/', gallery does not
+    return pathname.includes('/photo/');
   } else {
     // TODO: Add rules for other domains
     return true; // Default: treat as main image view

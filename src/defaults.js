@@ -14,15 +14,15 @@ const DEFAULT_SETTINGS = {
   allowedSites: {
     'artstation.com': true,
     'deviantart.com': true,
-    'instagram.com': true,
     'pinterest.com': true,
+    'instagram.com': true,
     'flickr.com': true,
     'tumblr.com': true,
     'imgur.com': true,
-    'unsplash.com': true,
     'pixiv.net': true,
     '500px.com': true,
     'reddit.com': true,
+    'unsplash.com': true,
     'all_sites': false // A special flag for enabling all sites
   }
 };

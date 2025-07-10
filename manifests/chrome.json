@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Image Gallery Tab Downloader",
+  "name": "Download Image Gallery Tabs",
   "version": "1.0",
   "description": "Scans open tabs for image galleries, downloads the main image, and optionally closes the tab.",
   "icons": {
@@ -25,13 +25,6 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
