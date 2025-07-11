@@ -36,10 +36,35 @@ function updateStatusMessage() {
   });
 }
 
+// --- Theme logic: apply user/system theme ---
+function setThemeClass(theme) {
+  document.body.classList.remove('light', 'dark');
+  // Set color-scheme property for Chrome compatibility (forces theme)
+  document.body.style.removeProperty('color-scheme');
+  if (theme === 'dark') {
+    document.body.classList.add('dark');
+    document.body.style.colorScheme = 'dark';
+  } else if (theme === 'light') {
+    document.body.classList.add('light');
+    document.body.style.colorScheme = 'light';
+  } else {
+    // Auto: use system detection
+    document.body.style.colorScheme = 'light dark';
+    const isLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+    document.body.classList.toggle('light', isLight);
+    document.body.classList.toggle('dark', !isLight);
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => setThemeClass('auto'));
+  }
+}
+
 // --- Event Listeners ---
 
 // 1. When the popup HTML has loaded.
 document.addEventListener('DOMContentLoaded', () => {
+  chrome.storage.local.get({ theme: 'auto' }, (result) => {
+    setThemeClass(result.theme);
+  });
+
   // Immediately check and display the current download status.
   updateStatusMessage();
 

@@ -14,7 +14,7 @@
     <h1 class="gradient-text">Image Downloader Settings</h1>
     <form id="settings-form">
       <div class="form-group">
-        <label for="folder">Download Folder Name</label>
+        <label class="font-bold font-size-2" for="folder">Download Folder Name</label>
         <input type="text" id="folder" name="folder" placeholder="e.g., Gallery" required>
         <small class="hint-text">This folder will be created inside your browser's Downloads folder.</small>
       </div>
@@ -26,8 +26,19 @@
       <hr class="divider">
 
       <div class="form-group">
-        <label>Scan on these sites:</label>
+        <label class="font-bold font-size-2">Scan on these sites:</label>
         <div id="sites-list"></div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="form-group">
+        <label class="font-bold font-size-2">Theme</label>
+        <div class="radio-group">
+          <label><input type="radio" name="theme" value="auto" checked> Auto</label>
+          <label><input type="radio" name="theme" value="dark"> Dark</label>
+          <label><input type="radio" name="theme" value="light"> Light</label>
+        </div>
       </div>
 
       <hr class="divider">

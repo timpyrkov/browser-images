@@ -9,6 +9,7 @@ const folderInput = document.getElementById('folder');
 const closeTabsInput = document.getElementById('closeTabs');
 const sitesListDiv = document.getElementById('sites-list');
 const saveButton = form.querySelector('button');
+const themeInputs = document.querySelectorAll('input[name="theme"]');
 
 // For development: use chrome.storage.local instead of chrome.storage.sync
 // TODO: Switch back to chrome.storage.sync for production/cross-device sync
@@ -41,10 +42,15 @@ function saveOptions(e) {
     });
   }
 
+  // Get selected theme
+  let selectedTheme = 'auto';
+  themeInputs.forEach(input => { if (input.checked) selectedTheme = input.value; });
+
   const settingsToSave = {
     folder: folderInput.value.trim() || DEFAULT_SETTINGS.folder,
     closeTabs: closeTabsInput.checked,
-    allowedSites: allowedSites
+    allowedSites: allowedSites,
+    theme: selectedTheme
   };
 
   console.log('Saving settings:', settingsToSave);
@@ -90,6 +96,8 @@ function restoreOptions() {
     folderInput.value = result.folder;
     closeTabsInput.checked = result.closeTabs;
     populateSitesList(result.allowedSites);
+    // Restore theme radio
+    themeInputs.forEach(input => { input.checked = (input.value === (result.theme || 'auto')); });
   });
 }
 
@@ -153,6 +161,32 @@ function createCheckbox(name, labelText, isChecked) {
 
   return { div, checkbox };
 }
+
+// --- Theme logic: apply user/system theme ---
+function setThemeClass(theme) {
+  document.body.classList.remove('light', 'dark');
+  // Set color-scheme property for Chrome compatibility (forces theme)
+  document.body.style.removeProperty('color-scheme');
+  if (theme === 'dark') {
+    document.body.classList.add('dark');
+    document.body.style.colorScheme = 'dark';
+  } else if (theme === 'light') {
+    document.body.classList.add('light');
+    document.body.style.colorScheme = 'light';
+  } else {
+    // Auto: use system detection
+    document.body.style.colorScheme = 'light dark';
+    const isLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+    document.body.classList.toggle('light', isLight);
+    document.body.classList.toggle('dark', !isLight);
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => setThemeClass('auto'));
+  }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  chrome.storage.local.get({ theme: 'auto' }, (result) => {
+    setThemeClass(result.theme);
+  });
+});
 
 // Add event listeners
 document.addEventListener('DOMContentLoaded', restoreOptions);

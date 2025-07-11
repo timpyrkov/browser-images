@@ -9,6 +9,9 @@ const DEFAULT_SETTINGS = {
   // Default setting for closing tabs (false = don't close).
   closeTabs: false,
 
+  // Theme: 'auto', 'dark', or 'light'.
+  theme: 'auto',
+
   // List of websites the extension is allowed to scan.
   // By default, all supported sites are enabled.
   allowedSites: {
