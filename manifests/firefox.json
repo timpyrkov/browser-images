@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Download Image Gallery Tabs",
+  "name": "Image Downloader for Gallery Tabs",
   "version": "1.0",
-  "description": "Scans open tabs for image galleries, downloads the main image, and optionally closes the tab.",
+  "description": "Image downloader from open browser tabs.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -31,6 +31,6 @@
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"
     },
-    "default_title": "Download main image from gallery tabs"
+    "default_title": "Image Downloader for Gallery Tabs"
   }
 }

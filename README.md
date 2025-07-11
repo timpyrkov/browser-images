@@ -3,7 +3,7 @@
   <span style="font-size:2.5em; vertical-align: middle;"><b>Download Images from Gallery Tabs</b></span>
 </p></h1>
 
-A cross-browser extension for Firefox and Google Chrome that scans your open tabs for image gallery pages, downloads the main image from each, and optionally closes the tab after the download is complete.
+ Chrome / Firefox extension for main image downloader from open browser tabs.
 
 ---
 

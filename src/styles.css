@@ -33,6 +33,7 @@
   --error: var(--accent-2);
   --warning: var(--accent-2);
   --info: var(--primary-2);
+  --btn-hover-bg: #181a20cc;
 }
 
 @media (prefers-color-scheme: light) {
@@ -44,6 +45,7 @@
   --text-secondary: #5a5a6e;
   --input-bg: #fff;
   --input-border: #b0b8c5;
+  --btn-hover-bg: #e0e0e6cc;
 }
 }
 
@@ -163,7 +165,7 @@ input[type="checkbox"]:disabled {
 }
 .btn:hover, .btn:focus {
   border-width: 2px;
-  background: #181a20cc;
+  background: var(--btn-hover-bg);
 }
 
 /* Ensure button loses focus styling after save operation */
@@ -242,6 +244,21 @@ body {
   border-radius: 12px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
+}
+
+/* --- Popup-specific width and padding tweaks --- */
+.container.popup-container {
+  max-width: 280px;
+  padding: 1.2em 1em 1em 1em;
+}
+
+/* Remove extra space below popup content */
+body.popup {
+  min-height: unset;
+  height: auto;
+  align-items: center;
+  padding: 0.5rem;
+  padding-bottom: 0.5rem;
 }
 
 h1 {

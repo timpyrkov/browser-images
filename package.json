@@ -1,7 +1,7 @@
 {
-  "name": "download-image-gallery-tabs",
+  "name": "image-downloader-gallery-tabs",
   "version": "1.0.0",
-  "description": "A cross-browser extension for downloading images from gallery tabs.",
+  "description": "Image downloader from open browser tabs.",
   "private": true,
   "scripts": {
     "build:firefox": "node build.js firefox",
