@@ -1,9 +1,9 @@
 <h1><p align="left">
   <img src="https://github.com/timpyrkov/download-img/blob/master/src/icons/icon-48.png?raw=true" alt="logo" height="25" style="vertical-align: middle; margin-right: 10px;">
-  <span style="font-size:2.5em; vertical-align: middle;"><b>Download Images from Gallery Tabs</b></span>
+  <span style="font-size:2.5em; vertical-align: middle;"><b>Browser Images</b></span>
 </p></h1>
 
- Chrome / Firefox extension for main image downloader from open browser tabs.
+Download Image Gallery Tabs Pictires (Chrome/Firefox extension)
 
 ---
 
