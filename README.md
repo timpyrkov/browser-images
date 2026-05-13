@@ -3,7 +3,7 @@
   <span style="font-size:2.5em; vertical-align: middle;"><b>Browser Images</b></span>
 </p></h1>
 
-## Download Image Gallery Tabs Pictires (Chrome/Firefox extension)
+### Download Image Gallery Tabs Pictires (Chrome/Firefox extension)
 
 ## Core Features
 
