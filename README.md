@@ -1,11 +1,9 @@
 <h1><p align="left">
-  <img src="https://github.com/timpyrkov/download-img/blob/master/src/icons/icon-48.png?raw=true" alt="logo" height="25" style="vertical-align: middle; margin-right: 10px;">
+  <img src="https://github.com/timpyrkov/browser-images/blob/master/src/icons/icon-128.png?raw=true" alt="Browser Images logo" height="25" style="vertical-align: middle; margin-right: 10px;">
   <span style="font-size:2.5em; vertical-align: middle;"><b>Browser Images</b></span>
 </p></h1>
 
-Download Image Gallery Tabs Pictires (Chrome/Firefox extension)
-
----
+## Download Image Gallery Tabs Pictires (Chrome/Firefox extension)
 
 ## Core Features
 
