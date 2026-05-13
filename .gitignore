@@ -31,3 +31,6 @@ replay_pid*
 
 # Node.js dependencies
 /node_modules/
+
+# macOS
+.DS_Store
