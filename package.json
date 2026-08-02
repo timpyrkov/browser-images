@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "description": "Image downloader from open browser tabs.",
   "private": true,
+  "type": "module",
   "scripts": {
-    "build:firefox": "node build.js firefox",
-    "build:chrome": "node build.js chrome",
-    "build": "npm run build:firefox && npm run build:chrome",
+    "lint": "node --check src/defaults.js && node --check src/naming.js && node --check src/background.js && node --check src/content.js && node --check src/sidebar.js && node --check src/i18n.js && node --check src/languages.js && for f in src/galleries/*.js; do node --check \"$f\"; done && for f in src/locales/*.js; do node --check \"$f\"; done && node --check build.cjs",
+    "build:firefox": "node build.cjs firefox",
+    "build:chrome": "node build.cjs chrome",
+    "build": "npm run lint && npm run build:firefox && npm run build:chrome",
     "clean": "rm -rf dist"
   },
   "author": "Tim Pyrkov",

@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Browser Images</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="defaults.js"></script>
+  <script src="naming.js"></script>
+  <script src="galleries.js"></script>
+  <script src="galleries/deviantart.js"></script>
+  <script src="galleries/pinterest.js"></script>
+  <script src="theme.js"></script>
+  <script type="module" src="sidebar.js"></script>
+  <style>
+    /* Override the shared body layout meant for popup/options cards. */
+    body {
+      display: block;
+      margin: 0;
+      padding: 1rem;
+      background-color: var(--background);
+      color: var(--foreground);
+      font-size: 14px;
+      width: auto;
+      min-width: 0;
+    }
+
+    .sidebar-page {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100vh;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 0.4em;
+      flex-wrap: wrap;
+      padding-bottom: 0.6em;
+      margin-bottom: 0.75em;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .toolbar-logo {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+      border-radius: 6px;
+      margin-right: 1.8em;
+    }
+
+    .lang-select {
+      min-width: 74px;
+      padding-left: 6px;
+      padding-right: 4px;
+    }
+
+    .date-picker {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .date-picker-input {
+      width: 110px;
+      text-align: center;
+      cursor: pointer;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 6px;
+      color: var(--foreground);
+      font-size: 13px;
+      height: 32px;
+      box-sizing: border-box;
+      padding: 0 6px;
+    }
+
+    .date-picker-input:focus {
+      outline: none;
+      border-color: var(--input-focus);
+    }
+
+    .date-picker-calendar {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      width: 240px;
+      background: linear-gradient(180deg, var(--surface-top), var(--surface-bottom));
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 0.6em;
+      z-index: 100;
+      font-size: 13px;
+      color: var(--foreground);
+      box-sizing: border-box;
+    }
+
+    .date-picker-calendar[hidden] {
+      display: none;
+    }
+
+    .calendar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.5em;
+      font-weight: 600;
+    }
+
+    .calendar-nav {
+      background: transparent;
+      border: none;
+      color: var(--foreground);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    .calendar-nav:hover {
+      background: var(--neutral-4);
+    }
+
+    .calendar-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 0.3em;
+    }
+
+    .calendar-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+    }
+
+    .calendar-day {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .calendar-day:hover {
+      background: var(--neutral-4);
+    }
+
+    .calendar-day.selected {
+      background: var(--primary-1);
+      color: var(--neutral-1);
+    }
+
+    .calendar-day.weekend {
+      color: var(--accent-1);
+    }
+
+    .calendar-day.other-month {
+      color: var(--neutral-6);
+    }
+
+    .calendar-footer {
+      margin-top: 0.5em;
+      text-align: center;
+    }
+
+    .toolbar select,
+    .toolbar input,
+    .toolbar button {
+      height: 32px;
+      box-sizing: border-box;
+    }
+
+    .toolbar select,
+    .toolbar input[type="text"],
+    .toolbar input[type="date"] {
+      width: auto;
+      min-width: 0;
+      padding: 0 6px;
+      font-size: 12px;
+      flex: 0 0 auto;
+    }
+
+    /* Extra breathing room between logical control groups. */
+    .toolbar-group-gap {
+      margin-left: 1.8em;
+    }
+
+    .btn-sm {
+      padding: 0 14px;
+      font-size: 13px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      padding: 0;
+      font-size: 19px;
+      line-height: 1;
+    }
+
+    .toolbar .theme-toggle {
+      width: 32px;
+      height: 32px;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+
+    .gallery-settings-panel {
+      width: 100%;
+      order: 10;
+      box-sizing: border-box;
+      margin-top: 0.5em;
+      padding: 0.75em 0.9em;
+      background: linear-gradient(180deg, var(--surface-top), var(--surface-bottom));
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .gallery-settings-panel[hidden] {
+      display: none;
+    }
+
+    .gallery-settings-panel .form-group {
+      margin-bottom: 0.6em;
+    }
+
+    .gallery-settings-panel .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .gallery-settings-panel .checkbox-group {
+      gap: 0.5em;
+    }
+
+    /* Keep the box square: the panel sits inside .toolbar, whose rules would
+       otherwise stretch it to the 32px control height. */
+    .gallery-settings-panel .checkbox-group input[type="checkbox"] {
+      flex: 0 0 auto;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      margin: 0;
+    }
+
+    .gallery-settings-panel .checkbox-group label {
+      margin-bottom: 0;
+      cursor: pointer;
+    }
+
+    .gallery-settings-panel label {
+      font-size: 12px;
+    }
+
+    .gallery-settings-panel input,
+    .gallery-settings-panel select {
+      font-size: 13px;
+      padding: 6px 8px;
+    }
+
+    #sitesList .site-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6em;
+      margin-bottom: 0.5em;
+    }
+
+    #sitesList .site-label {
+      width: 110px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 13px;
+    }
+
+    #sitesList .site-path {
+      flex: 1;
+      min-width: 0;
+      font-size: 12px;
+      padding: 4px 6px;
+    }
+
+    .results-pane {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      box-sizing: border-box;
+      overflow-y: auto;
+      background: linear-gradient(180deg, var(--surface-top), var(--surface-bottom));
+      padding: 1em;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+    }
+
+    :root[data-theme="light"] .results-pane {
+      background: var(--neutral-1);
+    }
+
+    .summary-bar {
+      display: flex;
+      gap: 0.75em;
+      margin-bottom: 0.75em;
+      flex-wrap: wrap;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .summary-bar strong {
+      color: var(--foreground);
+    }
+
+    .filter-chips {
+      display: flex;
+      gap: 0.4em;
+      margin-bottom: 0.75em;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 999px;
+    }
+
+    .chip.active {
+      border-color: var(--primary-1);
+      box-shadow: 0 0 8px color-mix(in srgb, var(--primary-1) 30%, transparent);
+    }
+
+    .log-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75em;
+      padding: 0.6em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .log-thumb {
+      width: 48px;
+      height: 48px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: var(--neutral-4);
+      flex-shrink: 0;
+    }
+
+    .log-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .log-title {
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .log-filename {
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .log-status {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: capitalize;
+      flex-shrink: 0;
+    }
+
+    .status-downloaded { color: var(--color-success); }
+    .status-skipped { color: var(--color-warning); }
+    .status-error { color: var(--color-error); }
+    .status-scanning { color: var(--primary-1); }
+
+    .welcome-text,
+    .loading-text {
+      color: var(--text-secondary);
+      font-style: italic;
+      text-align: center;
+      margin-top: 2em;
+    }
+
+    .error-text {
+      color: var(--error);
+      font-style: italic;
+      text-align: center;
+      margin-top: 2em;
+    }
+
+    .actions-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.6em;
+      margin-top: 1em;
+      padding-top: 1em;
+      padding-left: 0.6em;
+      padding-right: 0.6em;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Match the toolbar's control height, as the Download button does. */
+    .actions-bar .btn {
+      height: 32px;
+    }
+
+    /* Both buttons sit together on the left; the .actions-bar gap spaces them. */
+  </style>
+</head>
+<body>
+  <div class="sidebar-page">
+    <div class="toolbar">
+      <img class="toolbar-logo" src="icons/icon-32.png" alt="Browser Images" />
+
+      <select id="uiLangSelect" class="lang-select" title="Interface language"></select>
+
+      <select id="gallerySelect" class="toolbar-group-gap" title="Gallery"></select>
+      <button id="gallerySettingsBtn" class="btn btn-grey icon-btn" title="Gallery settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+          <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z" />
+        </svg>
+      </button>
+
+      <div class="date-picker toolbar-group-gap" id="maxDatePicker">
+        <input type="text" id="maxDate" class="date-picker-input" placeholder="dd/mm/yyyy" readonly title="Max date back" />
+        <div id="maxDateCalendar" class="date-picker-calendar" hidden>
+          <div class="calendar-header">
+            <button id="calPrev" type="button" class="calendar-nav">&#9664;</button>
+            <span id="calMonthYear"></span>
+            <button id="calNext" type="button" class="calendar-nav">&#9654;</button>
+          </div>
+          <div class="calendar-weekdays" id="calWeekdays"></div>
+          <div id="calDays" class="calendar-days"></div>
+          <div class="calendar-footer">
+            <button id="calClear" type="button" class="btn btn-grey btn-sm">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <button id="downloadBtn" class="btn btn-green btn-sm toolbar-group-gap">Download</button>
+
+      <button id="themeToggle" class="theme-toggle toolbar-group-gap" title="Toggle theme">&#9728;&#65039;</button>
+
+      <div id="gallerySettingsPanel" class="gallery-settings-panel" hidden>
+        <div class="form-group">
+          <label id="galleryPathsLabel" for="sitesList">Download paths</label>
+          <div id="sitesList"></div>
+        </div>
+        <div class="form-group">
+          <label id="rateLimitLabel" for="rateLimit">Delay between downloads (seconds)</label>
+          <input type="number" id="rateLimit" min="0" step="0.5" value="1.5" />
+        </div>
+        <div class="form-group checkbox-group">
+          <input type="checkbox" id="skipDownloaded" />
+          <label id="skipDownloadedLabel" for="skipDownloaded">Skip downloaded</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="results-pane" id="resultsPane">
+      <div class="summary-bar" id="summaryBar">
+        <span><span id="summaryTotalLabel">Total</span>: <strong id="countTotal">0</strong></span>
+        <span><span id="summaryDownloadedLabel">Downloaded</span>: <strong id="countDownloaded">0</strong></span>
+        <span><span id="summarySkippedLabel">Skipped</span>: <strong id="countSkipped">0</strong></span>
+        <span><span id="summaryFailedLabel">Failed</span>: <strong id="countFailed">0</strong></span>
+      </div>
+      <div class="filter-chips" id="filterChips">
+        <button class="btn btn-grey chip active" data-filter="all" id="filterAll">All</button>
+        <button class="btn btn-grey chip" data-filter="downloaded" id="filterDownloaded">Downloaded</button>
+        <button class="btn btn-grey chip" data-filter="skipped" id="filterSkipped">Skipped</button>
+        <button class="btn btn-grey chip" data-filter="error" id="filterFailed">Failed</button>
+      </div>
+      <div id="logList"></div>
+      <div class="welcome-text" id="welcomeText">Open image-detail tabs and click <strong>Download</strong> to start.</div>
+      <div class="loading-text" id="statusText" style="display: none;"></div>
+      <div class="actions-bar" id="actionsBar">
+        <button id="closeDownloadedTabsBtn" class="btn btn-yellow btn-sm" disabled>Close downloaded tabs</button>
+        <button id="resetLogBtn" class="btn btn-green btn-sm">Clear list</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="sidebar.js"></script>
+</body>
+</html>

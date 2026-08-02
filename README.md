@@ -11,7 +11,7 @@
 - **Smart Domain Filtering:** Only scans tabs from websites you've allowed. You can choose from a list of popular gallery sites or enable scanning for all websites.
 - **Duplicate Prevention:** The extension intelligently checks if a file already exists in your download folder (based on its filename) and will not download it again.
 - **Custom Download Folder:** Specify a subfolder name (e.g., "Gallery") inside your browser's main `Downloads` directory.
-- **Optional Tab Closing:** Choose whether to automatically close a tab after its image has been successfully downloaded.
+- **Manual Tab Closing:** After a scan, a **Close downloaded tabs** button appears in the working area. Clicking it closes only the tabs whose images were successfully downloaded; failed or skipped tabs are left open.
 - **Persistent Settings:** All your preferences are saved and loaded automatically.
 
 ---
@@ -72,7 +72,7 @@ If you want to use the extension permanently in Firefox (not just as a temporary
 ## How to Use
 
 1.  **Configure Your Settings:** Click the extension's icon in the toolbar and select **"Settings"**. Here you can set your preferred download folder, choose which websites to scan, and decide if tabs should close after downloading.
-2.  **Open Image Tabs:** Open one or more browser tabs to the main image pages you want to download (e.g., a specific image on DeviantArt, ArtStation, etc.).
+2.  **Open Image Tabs:** Open one or more browser tabs to the main image pages you want to download (e.g., a specific image on DeviantArt, ArtStation, etc.). **Only tabs in the currently focused browser window are scanned.**
 3.  **Start the Scan:** Click the extension icon again and press the **"Scan & Download"** button.
 4.  The extension will scan your open tabs, find the main images on the allowed domains, and download any new images to your specified folder.
 

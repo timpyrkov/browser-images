@@ -61,15 +61,6 @@ function build(browser) {
   const manifestDest = path.join(browserDistDir, 'manifest.json');
   fs.copyFileSync(manifestSrc, manifestDest);
 
-  // 4. Handle Chrome-specific modifications
-  if (browser === 'chrome') {
-    const backgroundJsPath = path.join(browserDistDir, 'background.js');
-    const backgroundJsContent = fs.readFileSync(backgroundJsPath, 'utf8');
-    const modifiedContent = `importScripts('defaults.js');\n\n` + backgroundJsContent;
-    fs.writeFileSync(backgroundJsPath, modifiedContent);
-    console.log('Injected importScripts into background.js for Chrome.');
-  }
-
   console.log(`Successfully built for ${browser} in ${browserDistDir}`);
 }
 
@@ -77,7 +68,7 @@ function build(browser) {
 
 const browser = process.argv[2];
 if (!browser) {
-  console.error('Build target not specified. Usage: node build.js [firefox|chrome]');
+  console.error('Build target not specified. Usage: node build.cjs [firefox|chrome]');
   process.exit(1);
 }
 

@@ -16,21 +16,21 @@
     "tabs",
     "downloads",
     "storage",
-    "scripting"
+    "scripting",
+    "activeTab",
+    "sidePanel"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
-  "options_ui": {
-    "page": "options.html",
-    "open_in_tab": true
-  },
   "action": {
-    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"
     },
     "default_title": "Image Downloader for Gallery Tabs"
+  },
+  "side_panel": {
+    "default_path": "sidebar.html"
   }
 }

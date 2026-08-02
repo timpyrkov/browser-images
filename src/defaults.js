@@ -1,31 +1,48 @@
 // defaults.js
 // Central place for extension default settings
-// Can be referenced by options.html and options.js
 
 const DEFAULT_SETTINGS = {
-  // Default folder name for downloads, created inside the browser's main Downloads folder.
-  folder: "Gallery",
+  // Fallback folder for custom/unknown domains (relative to the browser's Downloads directory).
+  folder: '',
 
-  // Default setting for closing tabs (false = don't close).
-  closeTabs: false,
+  // Per-gallery download subfolders for images and videos, relative to the
+  // browser's Downloads directory. Each key maps to { images, videos }.
+  galleryPaths: {
+    'artstation.com': { images: 'PIC', videos: 'MOV' },
+    'behance.net': { images: 'PIC', videos: 'MOV' },
+    'bsky.app': { images: 'PIC', videos: 'MOV' },
+    'deviantart.com': { images: 'PIC', videos: 'MOV' },
+    'dribbble.com': { images: 'PIC', videos: 'MOV' },
+    'flickr.com': { images: 'PIC', videos: 'MOV' },
+    'imgur.com': { images: 'PIC', videos: 'MOV' },
+    'instagram.com': { images: 'PIC', videos: 'MOV' },
+    'pinterest.com': { images: 'PIC', videos: 'MOV' },
+    'pixiv.net': { images: 'PIC', videos: 'MOV' },
+    'reddit.com': { images: 'PIC', videos: 'MOV' },
+    'tumblr.com': { images: 'PIC', videos: 'MOV' },
+    'x.com': { images: 'PIC', videos: 'MOV' },
+    'unsplash.com': { images: 'PIC', videos: 'MOV' },
+    '500px.com': { images: 'PIC', videos: 'MOV' },
+    'wallhaven.cc': { images: 'PIC', videos: 'MOV' },
+    'zerochan.net': { images: 'PIC', videos: 'MOV' },
+  },
 
-  // Theme: 'auto', 'dark', or 'light'.
-  theme: 'auto',
+  // Theme: 'dark' or 'light'.
+  theme: 'dark',
 
-  // List of websites the extension is allowed to scan.
-  // By default, all supported sites are enabled.
-  allowedSites: {
-    'artstation.com': true,
-    'deviantart.com': true,
-    'pinterest.com': true,
-    'instagram.com': true,
-    'flickr.com': true,
-    'tumblr.com': true,
-    'imgur.com': true,
-    'pixiv.net': true,
-    '500px.com': true,
-    'reddit.com': true,
-    'unsplash.com': true,
-    'all_sites': false // A special flag for enabling all sites
-  }
+  // UI interface language.
+  uiLang: 'en',
+
+  // Selected gallery filter in the sidebar.
+  gallery: 'artstation.com',
+
+  // Max date back for the download log and duplicate window (empty = no limit).
+  maxDate: '',
+
+  // Delay between consecutive downloads, in seconds.
+  rateLimit: 1.5,
+
+  // Skip images already present in the browser's download history.
+  // Shared across all galleries, like rateLimit.
+  skipDownloaded: true,
 };
