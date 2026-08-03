@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "Ritardo tra i download (secondi)",
   skipDownloadedLabel: "Salta già scaricate",
   skipDownloadedTitle: "Salta le immagini già presenti nella cronologia dei download del browser",
+  preferPreviewLabel: "Preferisci dimensione anteprima",
+  preferPreviewTitle: "Scarica la versione di anteprima, più piccola, invece del file a dimensione piena",
   calendarClear: "Cancella",
   closeDownloadedTabsBtn: "Chiudi schede scaricate",
   closeDownloadedTabsDone: "Schede scaricate chiuse.",

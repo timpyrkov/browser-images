@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = window.DEFAULT_SETTINGS || {
   maxDate: '',
   rateLimit: 1.5,
   skipDownloaded: true,
+  preferPreview: false,
 };
 
 // galleries.js keeps this sorted by label; the fallback below is only used if
@@ -111,6 +112,8 @@ function applyTranslations() {
   setText($('rateLimitLabel'), t(lang, 'rateLimitLabel'));
   setText($('skipDownloadedLabel'), t(lang, 'skipDownloadedLabel'));
   $('skipDownloadedLabel').title = t(lang, 'skipDownloadedTitle');
+  setText($('preferPreviewLabel'), t(lang, 'preferPreviewLabel'));
+  $('preferPreviewLabel').title = t(lang, 'preferPreviewTitle');
   setText($('closeDownloadedTabsBtn'), t(lang, 'closeDownloadedTabsBtn'));
   setText($('resetLogBtn'), t(lang, 'resetLogBtn'));
 
@@ -236,6 +239,10 @@ function bindSettingsPanel() {
 
   $('skipDownloaded').addEventListener('change', async () => {
     await saveSettings({ skipDownloaded: $('skipDownloaded').checked });
+  });
+
+  $('preferPreview').addEventListener('change', async () => {
+    await saveSettings({ preferPreview: $('preferPreview').checked });
   });
 }
 
@@ -555,6 +562,7 @@ function initDatePicker() {
 function applyLoadedSettings() {
   $('rateLimit').value = state.settings.rateLimit;
   $('skipDownloaded').checked = state.settings.skipDownloaded !== false;
+  $('preferPreview').checked = state.settings.preferPreview === true;
   updateDatePickerInput();
   initUiLangSelect();
   initGallerySelect();

@@ -62,14 +62,14 @@ function getLargestVisibleImage() {
 }
 
 // Gallery detection and image extraction logic
-async function getMainImageUrls() {
+async function getMainImageUrls(options = {}) {
   const hostname = location.hostname;
   const urls = [];
 
   // 1. Site-specific parser from the registry
   const parser = findParser(hostname);
   if (parser && typeof parser.extractImageUrls === 'function') {
-    const parsed = await parser.extractImageUrls(document, location.href);
+    const parsed = await parser.extractImageUrls(document, location.href, options);
     if (parsed && parsed.length) urls.push(...parsed);
   } else if (parser && typeof parser.extractImageUrl === 'function') {
     const single = parser.extractImageUrl(document);
@@ -173,7 +173,7 @@ if (!self.__BI_CONTENT_LISTENER__) {
       try {
         // Parsers may return plain URL strings or {imageUrl, filename, title}
         // objects; normalize to objects before filtering.
-        const found = (await getMainImageUrls())
+        const found = (await getMainImageUrls(request.options || {}))
           .map((item) => (typeof item === 'string' ? { imageUrl: item } : item))
           .filter((item) => item && typeof item.imageUrl === 'string' && item.imageUrl);
         const downloadable = found.filter((item) => !item.imageUrl.startsWith('data:'));

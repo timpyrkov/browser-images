@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "ダウンロード間隔（秒）",
   skipDownloadedLabel: "ダウンロード済みをスキップ",
   skipDownloadedTitle: "ブラウザーのダウンロード履歴にすでにある画像をスキップします",
+  preferPreviewLabel: "プレビューサイズを優先",
+  preferPreviewTitle: "フルサイズのファイルではなく、小さいプレビュー版をダウンロードします",
   calendarClear: "クリア",
   closeDownloadedTabsBtn: "ダウンロード済みタブを閉じる",
   closeDownloadedTabsDone: "ダウンロード済みタブを閉じました。",

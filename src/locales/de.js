@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "Pause zwischen Downloads (Sekunden)",
   skipDownloadedLabel: "Bereits geladene überspringen",
   skipDownloadedTitle: "Bilder überspringen, die bereits im Download-Verlauf des Browsers stehen",
+  preferPreviewLabel: "Vorschaugröße bevorzugen",
+  preferPreviewTitle: "Die kleinere Vorschauversion statt der Datei in voller Größe herunterladen",
   calendarClear: "Löschen",
   closeDownloadedTabsBtn: "Geladene Tabs schließen",
   closeDownloadedTabsDone: "Geladene Tabs geschlossen.",

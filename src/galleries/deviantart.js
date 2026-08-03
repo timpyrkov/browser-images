@@ -94,23 +94,53 @@
   /* 2. URL / filename extraction                                       */
   /* ------------------------------------------------------------------ */
 
-  function fullviewUrl(media) {
-    const fv = (media.types || []).find((t) => t.t === 'fullview');
-    const token = fv && media.token ? media.token[fv.r] : (media.token && media.token[0]);
-    if (!token) return media.baseUri || null;
-    if (fv && fv.c) {
-      const path = fv.c.replace('<prettyName>', media.prettyName);
-      return `${media.baseUri}${path}?token=${token}`;
-    }
-    return `${media.baseUri}?token=${token}`;
+  function renditionOf(media, type) {
+    return ((media && media.types) || []).find((t) => t.t === type) || null;
   }
 
-  function browserSaveName(media) {
+  /**
+   * URL for one rendition. A rendition with no transform path (`c`) means
+   * baseUri already IS that file, which is how 'fullview' serves the original.
+   *
+   * prettyName must be percent-encoded inside the path: extra files in a
+   * Scroll/Carousel deviation keep their upload names, so it can contain
+   * spaces ("Kikansha Ningen.jpg") which otherwise produce an unfetchable URL.
+   */
+  function renditionUrl(media, type) {
+    const t = renditionOf(media, type);
+    if (!t) return null;
+    const token = media.token && media.token[t.r >= 0 ? t.r : 0];
+    if (!t.c) return token ? `${media.baseUri}?token=${token}` : (media.baseUri || null);
+    const path = t.c.replace('<prettyName>', encodeURIComponent(media.prettyName || ''));
+    return `${media.baseUri}${path}${token ? `?token=${token}` : ''}`;
+  }
+
+  /**
+   * 'preview' is DeviantArt's own display rendition: re-encoded and capped at
+   * roughly 0.8 megapixels, so it is a real disk saving. For artwork already
+   * under that cap it has the same pixel dimensions as fullview and only the
+   * lighter compression applies. Falls back to fullview when absent.
+   */
+  function pickImageType(media, preferPreview) {
+    if (preferPreview && renditionOf(media, 'preview')) return 'preview';
+    return renditionOf(media, 'fullview') ? 'fullview' : null;
+  }
+
+  /**
+   * The filename a browser would suggest for the chosen rendition. The
+   * rendition marker comes from the transform path, so it correctly reads
+   * -pre for a downscaled preview and -fullview otherwise.
+   */
+  function browserSaveName(media, type) {
     const base = (media.baseUri || '').split('/').pop().split('?')[0];
     const ext = base.includes('.') ? base.slice(base.lastIndexOf('.')) : '.jpg';
     const pretty = media.prettyName || '';
-    const isSlug = pretty && /^[a-z0-9_-]+$/i.test(pretty);
-    return isSlug ? `${pretty}-fullview${ext}` : base;
+    // Extra files keep their upload name, which is not a URL slug; those are
+    // saved under the baseUri file name instead.
+    if (!/^[a-z0-9_-]+$/i.test(pretty)) return base;
+    const t = renditionOf(media, type);
+    if (t && t.c) return t.c.split('/').pop().replace('<prettyName>', pretty);
+    return `${pretty}-fullview${ext}`;
   }
 
   /**
@@ -128,21 +158,23 @@
   }
 
   /** One naming-pipeline item for a deviation's own media or an extra file. */
-  function mediaItem(media) {
+  function mediaItem(media, preferPreview) {
     if (!media) return null;
     const video = bestVideoRendition(media);
     if (video) {
       return { url: video.b, kind: 'video', width: video.w, height: video.h };
     }
-    const url = fullviewUrl(media);
+    const type = pickImageType(media, preferPreview);
+    if (!type) return null;
+    const url = renditionUrl(media, type);
     if (!url) return null;
-    const fullview = ((media.types || []).find((t) => t.t === 'fullview')) || {};
+    const rendition = renditionOf(media, type) || {};
     return {
       url,
       kind: 'image',
-      naturalName: browserSaveName(media),
-      width: fullview.w,
-      height: fullview.h,
+      naturalName: browserSaveName(media, type),
+      width: rendition.w,
+      height: rendition.h,
     };
   }
 
@@ -162,7 +194,8 @@
     return null;
   }
 
-  function getDeviantArtImages(source, href) {
+  function getDeviantArtImages(source, href, options = {}) {
+    const preferPreview = options.preferPreview === true;
     const state = typeof source === 'string' ? extractInitialState(source) : source;
     const entities = state && state['@@entities'];
     if (!entities || !entities.deviationExtended || !entities.deviation) return null;
@@ -178,14 +211,14 @@
     const items = [];
 
     // Main media first, then the Scroll/Carousel extras in display order.
-    const main = mediaItem(deviation.media);
+    const main = mediaItem(deviation.media, preferPreview);
     if (main) items.push(main);
 
     additional
       .slice()
       .sort((a, b) => (a.position || 0) - (b.position || 0))
       .forEach((entry) => {
-        const item = mediaItem(entry.media);
+        const item = mediaItem(entry.media, preferPreview);
         if (item) {
           if (entry.width) item.width = entry.width;
           if (entry.height) item.height = entry.height;
@@ -232,7 +265,7 @@
       extractPageDate(doc) {
         return helpers.getPageDate ? helpers.getPageDate(doc) : null;
       },
-      async extractImageUrls(doc, href) {
+      async extractImageUrls(doc, href, options = {}) {
         let state = getDeviantArtStateFromPage(doc);
         if (!state) {
           state = await getDeviantArtStateFromWindow(doc);
@@ -243,7 +276,7 @@
           const resolved = helpers.resolveImageUrl ? helpers.resolveImageUrl(raw) : null;
           return resolved ? [{ imageUrl: resolved }] : [];
         }
-        const result = getDeviantArtImages(state, href);
+        const result = getDeviantArtImages(state, href, options);
         return result ? result.images : [];
       },
     };

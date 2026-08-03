@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "下载间隔（秒）",
   skipDownloadedLabel: "跳过已下载",
   skipDownloadedTitle: "跳过浏览器下载历史中已有的图片",
+  preferPreviewLabel: "优先使用预览尺寸",
+  preferPreviewTitle: "下载较小的预览版本，而不是完整尺寸的文件",
   calendarClear: "清除",
   closeDownloadedTabsBtn: "关闭已下载标签页",
   closeDownloadedTabsDone: "已关闭下载完成的标签页。",

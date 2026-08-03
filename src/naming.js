@@ -55,9 +55,13 @@
       .replace(/[.]+$/, '');
   }
 
-  // Rendition markers that may follow the hash, in any chain (-pre-2x).
-  const MARKER = '(?:pre|fullview|2x)';
-  const MARKER_CHAIN = `(?:-${MARKER})*`;
+  // Rendition markers that may follow the hash. DeviantArt uses -pre and
+  // -fullview plus a family of sized thumbnails (-150, -200h, -250t, -300w,
+  // -375w, -414w, -92s, -125s), and any of them may carry a -2x retina suffix
+  // — a real saved file can be named ..._dh7pkdy-414w-2x.jpg. The digit form
+  // stays generic so sizes DeviantArt adds later still parse.
+  const MARKER = '(?:pre|fullview|\\d{2,4}[hwts]?)';
+  const MARKER_CHAIN = `(?:-${MARKER})?(?:-2x)?`;
 
   function escapeRegExp(value) {
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "다운로드 간 지연 시간(초)",
   skipDownloadedLabel: "다운로드한 항목 건너뛰기",
   skipDownloadedTitle: "브라우저 다운로드 기록에 이미 있는 이미지를 건너뜁니다",
+  preferPreviewLabel: "미리보기 크기 우선",
+  preferPreviewTitle: "전체 크기 파일 대신 더 작은 미리보기 버전을 다운로드합니다",
   calendarClear: "지우기",
   closeDownloadedTabsBtn: "다운로드한 탭 닫기",
   closeDownloadedTabsDone: "다운로드한 탭을 닫았습니다.",

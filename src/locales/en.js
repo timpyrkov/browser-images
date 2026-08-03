@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "Delay between downloads (seconds)",
   skipDownloadedLabel: "Skip downloaded",
   skipDownloadedTitle: "Skip images already present in the browser's download history",
+  preferPreviewLabel: "Prefer preview size",
+  preferPreviewTitle: "Download the gallery's smaller preview rendition instead of the full-size file",
   calendarClear: "Clear",
   closeDownloadedTabsBtn: "Close downloaded tabs",
   closeDownloadedTabsDone: "Downloaded tabs closed.",

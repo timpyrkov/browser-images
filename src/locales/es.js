@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "Retardo entre descargas (segundos)",
   skipDownloadedLabel: "Omitir descargadas",
   skipDownloadedTitle: "Omitir las imágenes que ya están en el historial de descargas del navegador",
+  preferPreviewLabel: "Preferir tamaño de vista previa",
+  preferPreviewTitle: "Descargar la versión de vista previa, más pequeña, en lugar del archivo a tamaño completo",
   calendarClear: "Borrar",
   closeDownloadedTabsBtn: "Cerrar pestañas descargadas",
   closeDownloadedTabsDone: "Pestañas descargadas cerradas.",

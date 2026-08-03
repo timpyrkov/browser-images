@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "Задержка между загрузками (секунды)",
   skipDownloadedLabel: "Пропускать загруженные",
   skipDownloadedTitle: "Пропускать изображения, уже имеющиеся в истории загрузок браузера",
+  preferPreviewLabel: "Предпочитать превью",
+  preferPreviewTitle: "Загружать уменьшенную версию предпросмотра вместо файла в полном размере",
   calendarClear: "Очистить",
   closeDownloadedTabsBtn: "Закрыть загруженные вкладки",
   closeDownloadedTabsDone: "Загруженные вкладки закрыты.",

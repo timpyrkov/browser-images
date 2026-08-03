@@ -17,6 +17,8 @@ export default {
   rateLimitLabel: "Délai entre les téléchargements (secondes)",
   skipDownloadedLabel: "Ignorer déjà téléchargées",
   skipDownloadedTitle: "Ignorer les images déjà présentes dans l'historique de téléchargement du navigateur",
+  preferPreviewLabel: "Préférer la taille d'aperçu",
+  preferPreviewTitle: "Télécharger la version d'aperçu, plus petite, plutôt que le fichier en taille réelle",
   calendarClear: "Effacer",
   closeDownloadedTabsBtn: "Fermer les onglets téléchargés",
   closeDownloadedTabsDone: "Onglets téléchargés fermés.",

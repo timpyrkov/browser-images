@@ -239,7 +239,7 @@ async function downloadTabImages(tab, response, galleryPath, delaySeconds, skipD
 }
 
 // Sequential download with delay
-async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded) {
+async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview) {
   setDownloadStatus(true);
   console.log('[Download] Starting sequential download process.');
 
@@ -280,6 +280,7 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
         // Send a message to the now-injected content script
         const response = await chrome.tabs.sendMessage(tab.id, {
           command: 'find-main-image',
+          options: { preferPreview },
         });
 
         if (response && response.status === 'found-images' && response.images?.length) {
@@ -342,7 +343,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.command === 'scan-all-tabs') {
     console.log('[Download] Received scan-all-tabs command.');
     // Explicitly get all settings from storage, falling back to defaults.
-    chrome.storage.local.get(['folder', 'galleryPaths', 'rateLimit', 'gallery', 'maxDate', 'skipDownloaded'], (settings) => {
+    chrome.storage.local.get(['folder', 'galleryPaths', 'rateLimit', 'gallery', 'maxDate', 'skipDownloaded', 'preferPreview'], (settings) => {
       if (chrome.runtime.lastError) {
         console.error('Error getting settings:', chrome.runtime.lastError);
         return;
@@ -354,9 +355,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const selectedGallery = settings.gallery || DEFAULT_SETTINGS.gallery;
       const maxDate = settings.maxDate || '';
       const skipDownloaded = settings.skipDownloaded ?? DEFAULT_SETTINGS.skipDownloaded;
+      const preferPreview = settings.preferPreview ?? DEFAULT_SETTINGS.preferPreview;
       chrome.tabs.query({ currentWindow: true }, (tabs) => {
         console.log(`[Download] Found ${tabs.length} tabs in the current window to scan.`);
-        downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded);
+        downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview);
       });
     });
     return true; // Indicates an async response

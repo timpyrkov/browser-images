@@ -45,4 +45,8 @@ const DEFAULT_SETTINGS = {
   // Skip images already present in the browser's download history.
   // Shared across all galleries, like rateLimit.
   skipDownloaded: true,
+
+  // Download the gallery's smaller preview rendition instead of the full-size
+  // file. Shared across all galleries; currently honoured by DeviantArt.
+  preferPreview: false,
 };
