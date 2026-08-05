@@ -40,7 +40,7 @@ const DEFAULT_SETTINGS = {
   maxDate: '',
 
   // Delay between consecutive downloads, in seconds.
-  rateLimit: 1.5,
+  rateLimit: 0.5,
 
   // Skip images already present in the browser's download history.
   // Shared across all galleries, like rateLimit.
@@ -49,4 +49,17 @@ const DEFAULT_SETTINGS = {
   // Download the gallery's smaller preview rendition instead of the full-size
   // file. Shared across all galleries; currently honoured by DeviantArt.
   preferPreview: false,
+
+  // Expand a gallery / search index tab into its individual deviations and
+  // download each of them. Currently honoured by DeviantArt.
+  expandGalleries: false,
+
+  // While expanding, drive the index page's own "Next" control to reach
+  // deviations beyond the first render. Falls back to whatever is already
+  // loaded if no working control is found.
+  galleryPaginate: true,
+
+  // How many deviation pages are fetched concurrently while expanding.
+  // Kept modest: concurrent bursts are what an adaptive rate limiter reacts to.
+  batchSize: 10,
 };

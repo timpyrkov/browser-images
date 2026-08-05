@@ -162,12 +162,63 @@ function inferExtensionFromUrl(url) {
   return 'jpg';
 }
 
+// Collect the deviation links on a gallery / search index page, optionally
+// driving the page's own pagination control.
+async function getIndexLinks(options = {}) {
+  const parser = findParser(location.hostname);
+  if (!parser || typeof parser.extractIndexLinks !== 'function') return [];
+  self.__BI_HARVEST_CANCELLED__ = false;
+  try {
+    return await parser.extractIndexLinks(document, location.href, {
+      ...options,
+      // Relayed to the sidebar so a multi-minute walk shows a live count
+      // instead of looking hung.
+      onProgress: (count, total) => {
+        try { chrome.runtime.sendMessage({ command: 'harvest-progress', count, total }); } catch (e) {}
+      },
+      shouldStop: () => self.__BI_HARVEST_CANCELLED__ === true,
+    });
+  } catch (error) {
+    console.warn('[Content] Index link collection failed:', error);
+    return [];
+  }
+}
+
+function isIndexViewUrl(hostname, pathname) {
+  const parser = findParser(hostname);
+  return !!(parser && typeof parser.isIndexView === 'function' && parser.isIndexView(hostname, pathname));
+}
+
 // Listen for a message from the background script to start scanning.
 // Guarded so repeated injections don't register duplicate listeners
 // (each would call sendResponse for the same request).
 if (!self.__BI_CONTENT_LISTENER__) {
   self.__BI_CONTENT_LISTENER__ = true;
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.command === 'cancel-harvest') {
+    self.__BI_HARVEST_CANCELLED__ = true;
+    sendResponse({ status: 'cancelling' });
+    return false;
+  }
+
+  if (request.command === 'find-index-links') {
+    (async () => {
+      try {
+        const links = await getIndexLinks(request.options || {});
+        sendResponse({
+          status: 'found-links',
+          links,
+          isIndexView: isIndexViewUrl(location.hostname, location.pathname),
+          title: document.title?.trim() || location.hostname,
+          url: location.href,
+        });
+      } catch (error) {
+        sendResponse({ status: 'error', message: error.message });
+      }
+    })();
+    return true;
+  }
+
   if (request.command === 'find-main-image') {
     (async () => {
       try {

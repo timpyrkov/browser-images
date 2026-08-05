@@ -194,6 +194,27 @@
     return null;
   }
 
+  /**
+   * Why a deviation cannot be downloaded, or null when it can be.
+   *
+   * Subscription-locked deviations carry tierAccess === 'locked' and the field
+   * is simply absent otherwise. Their media still contains blurred renditions,
+   * so this has to be checked BEFORE building items or we would happily save
+   * the blur. Deliberately not using isDownloadable: it is false on plenty of
+   * perfectly accessible artwork (it only reflects the download button).
+   */
+  function unavailableReason(deviation) {
+    if (!deviation) return 'missing';
+    const tier = deviation.tierAccess || deviation.tier_access;
+    if (tier && String(tier).toLowerCase() === 'locked') return 'subscription locked';
+    const premium = deviation.premiumFolderData || deviation.premium_folder_data;
+    if (premium && premium.hasAccess === false) return 'premium folder';
+    if (deviation.isBlocked) return 'blocked';
+    if ((deviation.blockReasons || []).length) return 'blocked';
+    if (deviation.isDeleted) return 'deleted';
+    return null;
+  }
+
   function getDeviantArtImages(source, href, options = {}) {
     const preferPreview = options.preferPreview === true;
     const state = typeof source === 'string' ? extractInitialState(source) : source;
@@ -206,6 +227,11 @@
     const deviation = entities.deviation[id];
     const extended = entities.deviationExtended[id];
     if (!deviation || !extended) return null;
+
+    const blocked = unavailableReason(deviation);
+    if (blocked) {
+      return { deviationId: id, title: deviation.title, images: [], unavailable: blocked };
+    }
 
     const additional = extended.additionalMedia || [];
     const items = [];
@@ -226,7 +252,11 @@
         }
       });
 
-    if (!items.length) return null;
+    // Literature, journals and status posts land here: nothing to download,
+    // but not an error either.
+    if (!items.length) {
+      return { deviationId: id, title: deviation.title, images: [], unavailable: 'no downloadable media' };
+    }
 
     const author = (entities.user && entities.user[deviation.author]
       && entities.user[deviation.author].username) || '';
@@ -241,6 +271,11 @@
       deviationId: id,
       title: deviation.title,
       author,
+      // Used for the max-date filter when a deviation is fetched directly and
+      // there is no document to read meta tags from.
+      pageDate: deviation.publishedTime
+        ? new Date(deviation.publishedTime).toISOString().split('T')[0]
+        : null,
       images: items.map((item) => ({
         imageUrl: item.url,
         filename: item.filename,
@@ -249,6 +284,227 @@
         height: item.height || null,
       })),
     };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 3b. Gallery / search index pages                                    */
+  /* ------------------------------------------------------------------ */
+
+  // Index pages that list many deviations. The first group, when present,
+  // is the owning user, which scopes link collection to their work and keeps
+  // "more like this" suggestions from other artists out.
+  const OWNED_INDEX = /^\/([^/]+)\/(?:gallery|favourites)(?:\/|$)/i;
+  const OPEN_INDEX = /^\/(?:search|tag)(?:\/|$)/i;
+
+  function indexOwner(pathname) {
+    const match = OWNED_INDEX.exec(pathname || '');
+    return match ? match[1].toLowerCase() : null;
+  }
+
+  function isIndexView(pathname) {
+    return OWNED_INDEX.test(pathname || '') || OPEN_INDEX.test(pathname || '');
+  }
+
+  /**
+   * The active search term, if the index page is filtered.
+   *
+   * This matters because DeviantArt applies `?q=` CLIENT-side: the server still
+   * ships the folder's newest deviations in __INITIAL_STATE__, so on
+   * /quickhoof/gallery?q=underwater the embedded stream lists Blindfold09,
+   * Bib26 and friends while the grid actually shows the underwater results.
+   * Reading the state on such a page therefore injects wrong deviations.
+   */
+  function indexSearchQuery(href, state) {
+    try {
+      const q = new URL(href, 'https://www.deviantart.com').searchParams.get('q');
+      if (q && q.trim()) return q.trim();
+    } catch (error) { /* fall through to the state */ }
+    const section = state && state.gallectionSection;
+    const fromState = section && (section.searchQuery || section.searchInputValue);
+    return fromState && String(fromState).trim() ? String(fromState).trim() : null;
+  }
+
+  /** Only an unfiltered folder listing has a trustworthy embedded stream. */
+  function stateIsTrustworthy(href, state) {
+    if (indexSearchQuery(href, state)) return false;
+    try {
+      return OWNED_INDEX.test(new URL(href, 'https://www.deviantart.com').pathname);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /** Absolute deviation URL, or null when `href` is not one. */
+  function deviationHref(href, owner) {
+    const match = /^https?:\/\/(?:www\.)?deviantart\.com\/([^/]+)\/art\/[A-Za-z0-9-]+-\d+$/.exec(String(href || ''));
+    if (!match) return null;
+    if (owner && match[1].toLowerCase() !== owner) return null;
+    return href;
+  }
+
+  /**
+   * Deviation links on an index page, taken from the embedded state first
+   * (authoritative and in display order) and topped up from the DOM, which is
+   * where anything loaded after the initial render appears.
+   */
+  function collectDeviationLinks(doc, href, sink) {
+    const owner = indexOwner(new URL(href, 'https://www.deviantart.com').pathname);
+    // Accumulates across calls: the grid is virtualised, so each read only ever
+    // sees the current window and anything scrolled past is already gone.
+    const links = sink instanceof Set ? sink : new Set();
+    const add = (candidate) => {
+      const url = deviationHref(candidate, owner);
+      if (url) links.add(url);
+    };
+
+    const state = getDeviantArtStateFromPage(doc);
+    const entities = state && state['@@entities'];
+    if (entities && entities.deviation && stateIsTrustworthy(href, state)) {
+      const streams = state['@@streams'] || {};
+      Object.keys(streams).forEach((key) => {
+        const items = streams[key] && streams[key].items;
+        if (!Array.isArray(items)) return;
+        items.forEach((id) => {
+          const deviation = entities.deviation[id];
+          if (deviation && deviation.url) add(deviation.url);
+        });
+      });
+    }
+
+    Array.from(doc.querySelectorAll ? doc.querySelectorAll('a[href*="/art/"]') : [])
+      .forEach((anchor) => add(anchor.href));
+
+    return links;
+  }
+
+  /**
+   * How many deviations the page says the current folder holds. The state
+   * carries it (folder -1 is "All"), which turns an open-ended "scroll until
+   * it seems finished" walk into one with a known finish line — the difference
+   * between collecting 2545 links and stopping early at 384.
+   */
+  function expectedIndexTotal(doc, href) {
+    try {
+      const state = getDeviantArtStateFromPage(doc);
+      if (!state) return null;
+      const section = state.gallectionSection || {};
+      // A filtered view has no published total: the folder sizes describe the
+      // whole folder, not the matches, so any target read here would be wrong.
+      if (indexSearchQuery(href, state)) return null;
+      const folders = (state['@@entities'] || {}).galleryFolder || {};
+      const wanted = section.selectedSubfolderId != null && section.selectedSubfolderId !== -1
+        ? section.selectedSubfolderId
+        : section.selectedFolderId;
+      const folder = Object.values(folders).find((f) => f && f.folderId === wanted);
+      return folder && Number.isFinite(folder.size) ? folder.size : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /** Candidate controls that advance the index page to its next batch. */
+  function nextPageButtons(doc) {
+    return Array.from(doc.querySelectorAll ? doc.querySelectorAll('button, a') : [])
+      .filter((el) => /^(next|more)$/i.test((el.getAttribute('aria-label') || '').trim()))
+      .filter((el) => !el.disabled);
+  }
+
+  /**
+   * Collect every deviation link on an index page, optionally driving the
+   * page's own pagination.
+   *
+   * Two DeviantArt behaviours shape this. First, the grid is VIRTUALISED:
+   * scrolling past a thumbnail removes it from the DOM again, so links must be
+   * accumulated as they pass by and the page must be walked in viewport-sized
+   * steps — jumping straight to the bottom skips whole windows that are never
+   * rendered while we are looking. Second, how more items arrive depends on the
+   * viewer: signed in the grid lazy-loads on scroll, signed out it offers a
+   * Next control instead.
+   *
+   * Stops once the page can no longer be scrolled further AND several
+   * consecutive rounds have added nothing, so a slow lazy-load or a stretch of
+   * text deviations does not end the walk early.
+   */
+  async function collectAllDeviationLinks(doc, href, options = {}) {
+    const paginate = options.paginate !== false;
+    // Walking in viewport steps needs far more rounds than jumping to the
+    // bottom did: budget for a very large gallery rather than truncating it.
+    const maxRounds = Math.max(1, options.maxRounds || 4000);
+    const settleMs = Math.max(100, options.settleMs || 600);
+    // A stalled round usually means a slow lazy-load, not the end of the
+    // gallery, so give up only after several escalating waits.
+    const idleLimit = Math.max(1, options.idleRounds || 6);
+    const maxPatienceMs = Math.max(settleMs, options.maxPatienceMs || 10000);
+    const view = options.view || (typeof window !== 'undefined' ? window : null);
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    // Walking a big gallery takes minutes, so report as we go and allow the
+    // user to stop; without either, the sidebar just sits there looking hung.
+    const report = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+    const stopped = typeof options.shouldStop === 'function' ? options.shouldStop : () => false;
+
+    const links = new Set();
+    const target = expectedIndexTotal(doc, href);
+    collectDeviationLinks(doc, href, links);
+    report(links.size, target);
+    if (!paginate) return Array.from(links);
+
+    const startY = (view && view.scrollY) || 0;
+    let idle = 0;
+    let patience = settleMs;
+
+    for (let round = 0; round < maxRounds && idle < idleLimit; round++) {
+      if (stopped()) break;
+      const before = links.size;
+      let moved = false;
+
+      if (view && typeof view.scrollTo === 'function') {
+        const from = view.scrollY || 0;
+        const step = Math.max(400, Math.floor((view.innerHeight || 800) * 0.8));
+        view.scrollTo(0, from + step);
+        await wait(settleMs);
+        moved = (view.scrollY || 0) !== from;
+        collectDeviationLinks(doc, href, links);
+      }
+
+      if (links.size === before && !moved) {
+        for (const button of nextPageButtons(doc)) {
+          try { button.click(); } catch (error) { continue; }
+          await wait(settleMs);
+          collectDeviationLinks(doc, href, links);
+          if (links.size > before) break;
+        }
+      }
+
+      if (links.size > before || moved) {
+        idle = 0;
+        patience = settleMs;   // making progress again
+      } else {
+        // Nothing new and nowhere left to scroll. That usually means the next
+        // batch is still in flight rather than that the gallery has ended, so
+        // wait longer each time before believing it is over.
+        idle++;
+        await wait(patience);
+        collectDeviationLinks(doc, href, links);
+        if (links.size > before) {
+          idle = 0;
+          patience = settleMs;
+        } else {
+          patience = Math.min(patience * 2, maxPatienceMs);
+        }
+      }
+
+      report(links.size, target);
+      if (target && links.size >= target) break;   // reached the known total
+    }
+
+    if (target && links.size < target) {
+      console.warn(`[Content] Collected ${links.size} of ${target} deviations; `
+        + 'the gallery may still have been loading.');
+    }
+
+    // Leave the user's tab where we found it.
+    if (view && typeof view.scrollTo === 'function') view.scrollTo(0, startY);
+    return Array.from(links);
   }
 
   /* ------------------------------------------------------------------ */
@@ -264,6 +520,34 @@
       },
       extractPageDate(doc) {
         return helpers.getPageDate ? helpers.getPageDate(doc) : null;
+      },
+      isIndexView(hostname, pathname) {
+        return isIndexView(pathname);
+      },
+      async extractIndexLinks(doc, href, options = {}) {
+        return collectAllDeviationLinks(doc, href, options);
+      },
+      expectedIndexTotal(doc, href) {
+        return expectedIndexTotal(doc, href);
+      },
+      /**
+       * Parse a deviation straight from fetched HTML. Service workers have no
+       * DOMParser, but the state is read out of the raw text anyway, so this
+       * works without ever opening a tab.
+       */
+      parseDeviationHtml(html, href, options = {}) {
+        try {
+          const result = getDeviantArtImages(html, href, options);
+          if (!result) return null;
+          return {
+            images: result.images,
+            title: result.title,
+            pageDate: result.pageDate,
+            unavailable: result.unavailable || null,
+          };
+        } catch (error) {
+          return null;
+        }
       },
       async extractImageUrls(doc, href, options = {}) {
         let state = getDeviantArtStateFromPage(doc);

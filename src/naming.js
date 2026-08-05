@@ -22,7 +22,8 @@
 //                    the page URL.
 //   (b) one video  - prefix the natural file name with {author}_.
 //   (c) N images   - (a) for the first, then the same stem with its last
-//                    character swapped for the next sibling code.
+//                    character swapped for the next sibling code. After a
+//                    "-pre" ending the codes also depend on the image count.
 //   (d) N videos   - (b) for each.
 //   (e) mixed      - (a)+(c) across the images, (d) across the videos.
 (function (global) {
@@ -121,21 +122,40 @@
 
   // Letters that lead each run, by the stem's own last character. These orders
   // are fixed by existing manual downloads and must not be reshuffled:
-  //   e (-pre)      f, a, b, c, d, g, ... x, y, z, 0-9
   //   w (-fullview) z, y, x, a, b, c, ... u, v,    0-9
   //   x (-2x)       z, y,    a, b, c, ... v, w,    0-9
   //   anything else    a, b, c, ...       y, z,    0-9
-  const SIBLING_PREFIX = { e: 'f', w: 'zyx', x: 'zy' };
+  const SIBLING_PREFIX = { w: 'zyx', x: 'zy' };
+
+  // The "e" ending (-pre) additionally depends on how many images the
+  // deviation holds, again to match downloads made by hand:
+  //   up to 5 images  e, f, g, h, k
+  //   exactly 6       e, f, g, h, j, k
+  //   more            e, f, g, a, b, c, d, then h, i, j, k, ...
+  // The leading "e" in each row is the first image's own ending, so only the
+  // letters after it are handed out as sibling codes.
+  function leadingLettersForE(imageCount) {
+    if (imageCount <= 5) return 'fghk';
+    if (imageCount <= 6) return 'fghjk';
+    return 'fgabcd';
+  }
 
   /**
    * Single-character sibling codes: the leading letters for this ending, then
    * plain alphabetical order, then the digits. The first file's own last
    * character is always skipped so no sibling can collide with it, which
    * leaves 35 codes in every case.
+   *
+   * @param {string} lastChar last character of the first file's stem
+   * @param {number} [siblingCount] how many siblings are needed; only the "e"
+   *   ending varies with it, and omitting it selects the open-ended ordering.
    */
-  function siblingAlphabet(lastChar) {
+  function siblingAlphabet(lastChar, siblingCount) {
     const skip = String(lastChar || '').toLowerCase();
-    const order = `${SIBLING_PREFIX[skip] || ''}${LETTERS}${DIGITS}`;
+    const lead = skip === 'e'
+      ? leadingLettersForE(Number.isFinite(siblingCount) ? siblingCount + 1 : Infinity)
+      : (SIBLING_PREFIX[skip] || '');
+    const order = `${lead}${LETTERS}${DIGITS}`;
     const seen = new Set([skip]);
     return order.split('').filter((ch) => {
       if (seen.has(ch)) return false;
@@ -150,7 +170,7 @@
    * set of 36 or more files keeps producing distinct names.
    */
   function siblingCodes(lastChar, count) {
-    const codes = siblingAlphabet(lastChar).slice(0, count);
+    const codes = siblingAlphabet(lastChar, count).slice(0, count);
     outer:
     for (const letter of LETTERS) {
       for (const digit of DIGITS) {

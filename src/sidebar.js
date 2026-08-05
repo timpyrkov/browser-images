@@ -10,9 +10,12 @@ const DEFAULT_SETTINGS = window.DEFAULT_SETTINGS || {
   gallery: 'artstation.com',
   uiLang: 'en',
   maxDate: '',
-  rateLimit: 1.5,
+  rateLimit: 0.5,
   skipDownloaded: true,
   preferPreview: false,
+  expandGalleries: false,
+  galleryPaginate: true,
+  batchSize: 10,
 };
 
 // galleries.js keeps this sorted by label; the fallback below is only used if
@@ -62,7 +65,6 @@ function setHtml(el, value) {
 async function loadSettings() {
   const defaults = {
     ...DEFAULT_SETTINGS,
-    rateLimit: 1.5,
     uiLang: detectBrowserLanguage(),
     maxDate: '',
   };
@@ -114,8 +116,14 @@ function applyTranslations() {
   $('skipDownloadedLabel').title = t(lang, 'skipDownloadedTitle');
   setText($('preferPreviewLabel'), t(lang, 'preferPreviewLabel'));
   $('preferPreviewLabel').title = t(lang, 'preferPreviewTitle');
+  setText($('expandGalleriesLabel'), t(lang, 'expandGalleriesLabel'));
+  $('expandGalleriesLabel').title = t(lang, 'expandGalleriesTitle');
+  setText($('galleryPaginateLabel'), t(lang, 'galleryPaginateLabel'));
+  $('galleryPaginateLabel').title = t(lang, 'galleryPaginateTitle');
+  setText($('batchSizeLabel'), t(lang, 'batchSizeLabel'));
   setText($('closeDownloadedTabsBtn'), t(lang, 'closeDownloadedTabsBtn'));
   setText($('resetLogBtn'), t(lang, 'resetLogBtn'));
+  setText($('stopBtn'), t(lang, 'stopBtn'));
 
   setText($('summaryTotalLabel'), t(lang, 'summaryTotal'));
   setText($('summaryDownloadedLabel'), t(lang, 'summaryDownloaded'));
@@ -232,9 +240,16 @@ function bindSettingsPanel() {
     panel.hidden = !panel.hidden;
   });
 
+  // valueAsNumber, not parseFloat(value): in a comma-decimal locale a typed
+  // "2,5" leaves the input invalid, value reads back as "" and parseFloat
+  // yields NaN — which used to save 0 and silently disable the delay entirely.
+  // An unreadable entry now keeps the stored value instead.
   $('rateLimit').addEventListener('change', async () => {
-    const value = parseFloat($('rateLimit').value);
-    await saveSettings({ rateLimit: isNaN(value) || value < 0 ? 0 : value });
+    const input = $('rateLimit');
+    const value = input.valueAsNumber;
+    const next = Number.isFinite(value) && value >= 0 ? value : state.settings.rateLimit;
+    input.value = next;
+    await saveSettings({ rateLimit: next });
   });
 
   $('skipDownloaded').addEventListener('change', async () => {
@@ -244,6 +259,62 @@ function bindSettingsPanel() {
   $('preferPreview').addEventListener('change', async () => {
     await saveSettings({ preferPreview: $('preferPreview').checked });
   });
+
+  $('expandGalleries').addEventListener('change', async () => {
+    await saveSettings({ expandGalleries: $('expandGalleries').checked });
+  });
+
+  $('galleryPaginate').addEventListener('change', async () => {
+    await saveSettings({ galleryPaginate: $('galleryPaginate').checked });
+  });
+
+  $('batchSize').addEventListener('change', async () => {
+    const input = $('batchSize');
+    const value = input.valueAsNumber;
+    const next = Number.isFinite(value) && value >= 1 ? Math.min(100, Math.round(value)) : state.settings.batchSize;
+    input.value = next;
+    await saveSettings({ batchSize: next });
+  });
+}
+
+/**
+ * Clock time for an estimate. Same-day finishes show just the time; anything
+ * later carries the date, since a large gallery can easily run overnight.
+ */
+function formatClock(ms, lang) {
+  const when = new Date(ms);
+  const sameDay = when.toDateString() === new Date().toDateString();
+  return sameDay
+    ? when.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' })
+    : when.toLocaleString(lang, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDuration(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+/**
+ * "Started 14:32 · ETA 16:05" for a gallery run, or the elapsed time once it
+ * has finished. Returns '' for ordinary single-tab rows, which carry no timing.
+ */
+function formatTiming(entry) {
+  if (!entry.startedAt) return '';
+  const lang = state.settings.uiLang;
+  const parts = [`${t(lang, 'startedLabel')} ${formatClock(entry.startedAt, lang)}`];
+  if (entry.durationMs) {
+    parts.push(`${t(lang, 'tookLabel')} ${formatDuration(entry.durationMs)}`);
+  } else if (entry.etaAt) {
+    parts.push(`${t(lang, 'etaLabel')} ${formatClock(entry.etaAt, lang)}`);
+  } else {
+    parts.push(`${t(lang, 'etaLabel')} …`);
+  }
+  return parts.join(' · ');
 }
 
 /**
@@ -254,7 +325,7 @@ function bindSettingsPanel() {
 function formatStatus(entry) {
   const key = `status${entry.status.charAt(0).toUpperCase()}${entry.status.slice(1)}`;
   const label = t(state.settings.uiLang, key) || entry.status;
-  if (entry.status === 'downloading' && entry.total > 1) {
+  if ((entry.status === 'downloading' || entry.status === 'scanning') && entry.total > 1) {
     return `${label} (${entry.count}/${entry.total})`;
   }
   if (entry.count > 0) {
@@ -303,6 +374,14 @@ function renderLog() {
     info.appendChild(title);
     info.appendChild(filename);
 
+    const timing = formatTiming(entry);
+    if (timing) {
+      const line = document.createElement('div');
+      line.className = 'log-timing';
+      line.textContent = timing;
+      info.appendChild(line);
+    }
+
     const status = document.createElement('div');
     status.className = `log-status status-${entry.status}`;
     status.textContent = formatStatus(entry);
@@ -329,18 +408,32 @@ function updateCounts() {
 function setScanning(scanning) {
   state.scanning = scanning;
   const statusText = $('statusText');
+  // Stop is only meaningful mid-run; Download only outside one.
+  $('downloadBtn').disabled = scanning;
+  $('stopBtn').disabled = !scanning;
   if (scanning) {
     statusText.style.display = '';
     statusText.textContent = t(state.settings.uiLang, 'statusScanning');
     $('welcomeText').style.display = 'none';
-    $('downloadBtn').disabled = true;
+    startWatchdog();
   } else {
+    stopWatchdog();
     statusText.style.display = 'none';
-    $('downloadBtn').disabled = false;
     if (state.log.length === 0) {
       $('welcomeText').style.display = '';
     }
   }
+}
+
+function bindStop() {
+  $('stopBtn').addEventListener('click', async () => {
+    $('stopBtn').disabled = true;   // one press is enough; the run winds down
+    try {
+      await brw.runtime.sendMessage({ command: 'stop-scan' });
+    } catch (error) {
+      console.error('Failed to stop scan:', error);
+    }
+  });
 }
 
 function bindDownload() {
@@ -357,6 +450,9 @@ function bindDownload() {
   });
 
   brw.runtime.onMessage.addListener((message) => {
+    // Any traffic from the background counts as proof of life.
+    if (message?.type) noteBackgroundAlive();
+    if (message?.type === 'download-heartbeat') return;
     if (message?.type === 'download-complete') {
       setScanning(false);
       updateCounts();
@@ -364,6 +460,12 @@ function bindDownload() {
       return;
     }
     if (message?.type === 'download-progress' && message.item) {
+      if (message.item.status === 'scanning' && message.item.count) {
+        const seen = message.item.total
+          ? `${message.item.count}/${message.item.total}`
+          : `${message.item.count}`;
+        $('statusText').textContent = `${t(state.settings.uiLang, 'statusScanning')} (${seen})`;
+      }
       const existing = state.log.find((entry) => entry.id === message.item.id);
       if (existing) {
         Object.assign(existing, message.item);
@@ -374,6 +476,38 @@ function bindDownload() {
       renderLog();
     }
   });
+}
+
+/*
+ * The background can be unloaded mid-run by the browser. It heartbeats every
+ * 20s while working, so silence for much longer than that means the run is
+ * gone and the sidebar would otherwise show progress forever.
+ */
+const BACKGROUND_SILENCE_MS = 90000;
+let lastBackgroundSignal = 0;
+let watchdogTimer = null;
+
+function noteBackgroundAlive() {
+  lastBackgroundSignal = Date.now();
+}
+
+function startWatchdog() {
+  stopWatchdog();
+  noteBackgroundAlive();
+  watchdogTimer = setInterval(() => {
+    if (!state.scanning) return;
+    if (Date.now() - lastBackgroundSignal < BACKGROUND_SILENCE_MS) return;
+    const seconds = Math.round((Date.now() - lastBackgroundSignal) / 1000);
+    console.warn(`[Sidebar] No signal from the background for ${seconds}s.`);
+    $('statusText').textContent = t(state.settings.uiLang, 'statusStalled');
+  }, 15000);
+}
+
+function stopWatchdog() {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  }
 }
 
 function bindFilters() {
@@ -563,6 +697,9 @@ function applyLoadedSettings() {
   $('rateLimit').value = state.settings.rateLimit;
   $('skipDownloaded').checked = state.settings.skipDownloaded !== false;
   $('preferPreview').checked = state.settings.preferPreview === true;
+  $('expandGalleries').checked = state.settings.expandGalleries === true;
+  $('galleryPaginate').checked = state.settings.galleryPaginate !== false;
+  $('batchSize').value = state.settings.batchSize ?? 30;
   updateDatePickerInput();
   initUiLangSelect();
   initGallerySelect();
@@ -589,6 +726,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindSettingsPanel();
   bindDownload();
   bindFilters();
+  bindStop();
   bindCloseDownloadedTabs();
   bindResetLog();
   initDatePicker();
