@@ -3,9 +3,34 @@
   <span style="font-size:2.5em; vertical-align: middle;"><b>Browser Images</b></span>
 </p></h1>
 
-### Download Image Gallery Tabs Pictires (Chrome/Firefox extension)
+Download Image Gallery Tabs Pictires (Chrome/Firefox extension)
 
-## Core Features
+## 🚀 Quick Start
+
+### Build
+
+```bash
+npm run build:firefox    # -> dist/firefox/
+npm run build:chrome     # -> dist/chrome/
+```
+
+### Firefox
+
+```
+about:debugging#/runtime/this-firefox
+```
+Then click **Load Temporary Add-on…** and select `dist/firefox/manifest.json`
+
+### Chrome
+
+```
+chrome://extensions/
+```
+Then click **Load unpacked** and select the `dist/chrome/` folder
+
+---
+
+## ✨ Features
 
 - **One-Click Downloads:** A simple popup menu with a "Scan & Download" button to start the process.
 - **Smart Domain Filtering:** Only scans tabs from websites you've allowed. You can choose from a list of popular gallery sites or enable scanning for all websites.
@@ -113,3 +138,36 @@ This is a list of potential improvements and features for the future.
 ### A Note for Developers
 
 > During development, the extension uses `chrome.storage.local` for settings storage. Before any potential publishing to an add-on store, this should be switched to `chrome.storage.sync` in all relevant scripts to enable cross-device synchronization of user settings.
+
+---
+
+## 📋 TODO
+
+- **Publish to AMO (addons.mozilla.org)** so Firefox installs it permanently
+  instead of it disappearing on every restart as a temporary add-on. Unlisted
+  ("On your own") self-distribution is enough — Mozilla signs the `.xpi` without
+  listing it publicly:
+
+  ```bash
+  cd dist/firefox && web-ext sign --channel=unlisted --api-key=KEY --api-secret=SECRET
+  ```
+
+  The stable extension ID (`browser_specific_settings.gecko.id`) is already in
+  place, which is a prerequisite. Optionally add an `update_url` afterwards for
+  automatic updates instead of reinstalling by hand.
+- **Publish to the Chrome Web Store**, the Chrome analogue. Unlisted/private
+  distribution is available there too (one-time developer registration fee).
+  Loading `dist/chrome/` unpacked already persists across restarts, so this is
+  only needed for real distribution or to drop the developer-mode nag. Pin the
+  extension ID with a `"key"` manifest field if it should stay constant.
+- **Label manager** — one place to rename a label everywhere, merge two labels,
+  recolour, or delete one globally.
+- **More site rules** as they prove necessary — Twitch, Bluesky, Spotify, Amazon.
+- **Track focused time** alongside open time, to tell "open 3 weeks, never read"
+  from "read daily".
+
+---
+
+## 📝 License
+
+MIT

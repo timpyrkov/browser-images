@@ -277,6 +277,32 @@ function bindSettingsPanel() {
   });
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Small magnifier that takes its colour from the surrounding text. */
+function searchIcon() {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'log-search-icon');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', 'M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16'
+    + 'c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5'
+    + 'S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z');
+  svg.appendChild(path);
+  return svg;
+}
+
+/** "steampunk truck" -> "Steampunk Truck" (the URL's + already decoded). */
+function titleCase(text) {
+  return String(text || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 /**
  * Clock time for an estimate. Same-day finishes show just the time; anything
  * later carries the date, since a large gallery can easily run overnight.
@@ -365,7 +391,23 @@ function renderLog() {
 
     const title = document.createElement('div');
     title.className = 'log-title';
-    title.textContent = entry.title || entry.url || '—';
+    const titleText = document.createElement('span');
+    titleText.className = 'log-title-text';
+    titleText.textContent = entry.title || entry.url || '—';
+    title.appendChild(titleText);
+
+    // Search runs carry their ?q= term, appended in brackets. It sits in the
+    // title's own line so the card keeps its height, and is a separate node so
+    // the gallery name truncates while the term stays fully readable.
+    if (entry.searchQuery) {
+      const term = document.createElement('span');
+      term.className = 'log-search';
+      term.title = `${t(state.settings.uiLang, 'searchTermLabel')}: ${entry.searchQuery}`;
+      // "(" + magnifier + " Term)". An SVG rather than a glyph: ⌕ and friends
+      // render tiny and faint at this size, and this one inherits currentColor.
+      term.append('(', searchIcon(), ` ${titleCase(entry.searchQuery)})`);
+      title.appendChild(term);
+    }
 
     const filename = document.createElement('div');
     filename.className = 'log-filename';

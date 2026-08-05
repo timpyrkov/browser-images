@@ -373,6 +373,8 @@ function logItem(tab, status, extra = {}) {
     total: extra.total || 0,
     // Gallery runs only: epoch ms, formatted in the sidebar so the estimate
     // follows the interface language rather than the worker's locale.
+    // Search-result runs only: the ?q= term, shown as a chip on the card.
+    searchQuery: extra.searchQuery || '',
     startedAt: extra.startedAt || 0,
     etaAt: extra.etaAt || 0,
     durationMs: extra.durationMs || 0,
@@ -409,7 +411,8 @@ function projectFinish(startedAt, done, total) {
  * concurrent requests.
  */
 async function downloadIndexTab(tab, links, ctx) {
-  const { parser, galleryPath, throttle, skipDownloaded, preferPreview, maxDate, batchSize } = ctx;
+  const { parser, galleryPath, throttle, skipDownloaded, preferPreview, maxDate, batchSize,
+    searchQuery } = ctx;
   const counts = { downloaded: 0, skipped: 0, error: 0 };
   let thumbUrl = '';
   const startedAt = Date.now();
@@ -444,6 +447,7 @@ async function downloadIndexTab(tab, links, ctx) {
         thumbUrl,
         count: processed,
         total: links.length,
+        searchQuery,
         startedAt,
         etaAt: projectFinish(startedAt, processed - 1, links.length),
       }));
@@ -511,6 +515,7 @@ async function downloadIndexTab(tab, links, ctx) {
     filename: `${links.length} deviations, ${counts.downloaded} images${why}${throttled}${stopped}`,
     thumbUrl,
     count: counts[status],
+    searchQuery,
     startedAt,
     durationMs: Date.now() - startedAt,
   }));
@@ -649,6 +654,7 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
             await downloadIndexTab(tab, response.links, {
               parser: registry[domain], galleryPath, throttle,
               skipDownloaded, preferPreview, maxDate, batchSize,
+              searchQuery: response.searchQuery || '',
             });
           }
         } else if (response && response.status === 'found-images' && response.images?.length) {
@@ -720,7 +726,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.command === 'harvest-progress') {
     if (sender.tab) {
       broadcast('download-progress', logItem(sender.tab, 'scanning', {
-        count: message.count, total: message.total || 0,
+        count: message.count, total: message.total || 0, searchQuery: message.searchQuery,
       }));
     }
     return false;

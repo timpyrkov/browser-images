@@ -33,6 +33,7 @@ export default {
   startedLabel: "Début",
   etaLabel: "ETA",
   tookLabel: "Durée",
+  searchTermLabel: "Recherche",
   statusQueued: "en attente",
   statusStalled: "Bloqué — aucune réponse du téléchargeur. Appuyez sur Arrêter et réessayez.",
   statusScanning: "Analyse…",

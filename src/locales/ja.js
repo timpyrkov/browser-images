@@ -33,6 +33,7 @@ export default {
   startedLabel: "開始",
   etaLabel: "完了予定",
   tookLabel: "所要",
+  searchTermLabel: "検索",
   statusQueued: "待機中",
   statusStalled: "応答がありません。停止を押してやり直してください。",
   statusScanning: "スキャン中…",

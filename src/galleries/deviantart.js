@@ -402,6 +402,52 @@
     }
   }
 
+  /**
+   * How many matches a filtered view reports, from its own results header
+   * ("Results for 'military' in All — About 499 results").
+   *
+   * It is rendered client-side, so it exists only in the live DOM, and both the
+   * wording and the class names are unusable as anchors (localised and
+   * obfuscated respectively). The term itself is the stable anchor: find the
+   * smallest element quoting it, remove the term, and read the number left
+   * over. Note DeviantArt says "About", so treat the figure as approximate.
+   */
+  function searchResultTotal(doc, term) {
+    if (!term || !doc.querySelectorAll) return null;
+    // Anchor on the QUOTED term. Merely containing the word is not enough: a
+    // deviation titled "UnderwaterPeril25" matches a search for "underwater"
+    // and would hand back 25. Only the header quotes the term back at you.
+    const QUOTES = '["\'\u2018\u2019\u201c\u201d\u00ab\u00bb]';
+    const quoted = new RegExp(`${QUOTES}\\s*${escapeRegExp(String(term))}\\s*${QUOTES}`, 'i');
+    let best = null;
+    const nodes = doc.querySelectorAll('span, h1, h2, h3, p, div');
+    for (const el of nodes) {
+      const text = (el.textContent || '').trim();
+      if (!text || text.length > 200) continue;
+      if (!quoted.test(text)) continue;
+      // Drop the quoted term first: it may itself contain digits (q=2024).
+      const cleaned = text.replace(quoted, ' ');
+      const match = /(\d[\d.,\u00a0\u202f ]*)\s*([KM])?/i.exec(cleaned);
+      if (!match) continue;
+      const suffix = (match[2] || '').toUpperCase();
+      const digits = match[1].replace(/[\u00a0\u202f ]/g, '');
+      let value;
+      if (suffix) {
+        value = parseFloat(digits.replace(',', '.')) * (suffix === 'M' ? 1e6 : 1e3);
+      } else {
+        value = parseInt(digits.replace(/[.,]/g, ''), 10);
+      }
+      if (!Number.isFinite(value) || value <= 0) continue;
+      // Prefer the tightest wrapper, which is the results header itself.
+      if (!best || text.length < best.length) best = { value: Math.round(value), length: text.length };
+    }
+    return best ? best.value : null;
+  }
+
+  function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   /** Candidate controls that advance the index page to its next batch. */
   function nextPageButtons(doc) {
     return Array.from(doc.querySelectorAll ? doc.querySelectorAll('button, a') : [])
@@ -432,9 +478,8 @@
     const maxRounds = Math.max(1, options.maxRounds || 4000);
     const settleMs = Math.max(100, options.settleMs || 600);
     // A stalled round usually means a slow lazy-load, not the end of the
-    // gallery, so give up only after several escalating waits.
-    const idleLimit = Math.max(1, options.idleRounds || 6);
-    const maxPatienceMs = Math.max(settleMs, options.maxPatienceMs || 10000);
+    // gallery, so give up only after several escalating waits. How long to
+    // persist is decided below, once we know whether a total is available.
     const view = options.view || (typeof window !== 'undefined' ? window : null);
     const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     // Walking a big gallery takes minutes, so report as we go and allow the
@@ -443,16 +488,43 @@
     const stopped = typeof options.shouldStop === 'function' ? options.shouldStop : () => false;
 
     const links = new Set();
+    // Exact: the folder's own size. Reaching it means the walk is finished.
     const target = expectedIndexTotal(doc, href);
+    // Approximate: a search header's "About N results". Good enough to show as
+    // a denominator and to know roughly when to relax, but NOT to stop on --
+    // "About 2.5K" could be 2542, and stopping at 2500 would lose the tail.
+    const softTarget = target ? null
+      : searchResultTotal(doc, indexSearchQuery(href, getDeviantArtStateFromPage(doc)));
+
+    // Until we are in the expected range, a stalled round is far more likely to
+    // be a throttled lazy-load than the end of the results, so wait much longer
+    // before believing it. Once the count is reached, relax back.
+    const patientRounds = Math.max(1, options.idleRounds || 12);
+    const quickRounds = Math.max(1, options.idleRounds || 6);
+    const patientMs = Math.max(settleMs, options.maxPatienceMs || 20000);
+    const quickMs = Math.max(settleMs, options.maxPatienceMs || 10000);
+    const reachedExpected = () => softTarget != null && links.size >= softTarget;
+    const idleLimitNow = () => (target || reachedExpected() ? quickRounds : patientRounds);
+    const patienceCapNow = () => (target || reachedExpected() ? quickMs : patientMs);
+
     collectDeviationLinks(doc, href, links);
-    report(links.size, target);
+    report(links.size, target || softTarget);
     if (!paginate) return Array.from(links);
+
+    // Lazy-loading is driven by what the page considers visible, and browsers
+    // throttle timers in hidden tabs, so a backgrounded gallery can simply
+    // stop feeding new items. Worth saying out loud when results look short.
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (hidden) {
+      console.warn('[Content] The gallery tab is in the background; '
+        + 'lazy-loading may be throttled. Keep it visible for a full harvest.');
+    }
 
     const startY = (view && view.scrollY) || 0;
     let idle = 0;
     let patience = settleMs;
 
-    for (let round = 0; round < maxRounds && idle < idleLimit; round++) {
+    for (let round = 0; round < maxRounds && idle < idleLimitNow(); round++) {
       if (stopped()) break;
       const before = links.size;
       let moved = false;
@@ -489,17 +561,26 @@
           idle = 0;
           patience = settleMs;
         } else {
-          patience = Math.min(patience * 2, maxPatienceMs);
+          console.log(`[Content] No new links for ${idle} round(s) at ${links.size} `
+            + `collected; waiting ${Math.round(patience / 1000)}s before giving up.`);
+          patience = Math.min(patience * 2, patienceCapNow());
         }
       }
 
-      report(links.size, target);
-      if (target && links.size >= target) break;   // reached the known total
+      report(links.size, target || softTarget);
+      if (target && links.size >= target) break;   // reached the exact total
     }
 
     if (target && links.size < target) {
       console.warn(`[Content] Collected ${links.size} of ${target} deviations; `
         + 'the gallery may still have been loading.');
+    } else if (softTarget != null) {
+      const how = links.size >= softTarget ? 'met' : 'SHORT OF';
+      console.log(`[Content] Collected ${links.size} links, ${how} the reported `
+        + `~${softTarget} results${hidden ? ' (tab was hidden)' : ''}.`);
+    } else if (!target) {
+      console.log(`[Content] Collected ${links.size} links with no published total`
+        + `${hidden ? ' (tab was hidden)' : ''}.`);
     }
 
     // Leave the user's tab where we found it.
@@ -529,6 +610,10 @@
       },
       expectedIndexTotal(doc, href) {
         return expectedIndexTotal(doc, href);
+      },
+      /** The `?q=` term filtering this index page, or null. */
+      indexSearchTerm(doc, href) {
+        return indexSearchQuery(href, getDeviantArtStateFromPage(doc));
       },
       /**
        * Parse a deviation straight from fetched HTML. Service workers have no

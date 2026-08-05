@@ -33,6 +33,7 @@ export default {
   startedLabel: "开始",
   etaLabel: "预计完成",
   tookLabel: "用时",
+  searchTermLabel: "搜索",
   statusQueued: "排队中",
   statusStalled: "无响应 — 下载器已停止。请点击停止后重试。",
   statusScanning: "扫描中…",

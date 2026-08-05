@@ -33,6 +33,7 @@ export default {
   startedLabel: "Начало",
   etaLabel: "Осталось до",
   tookLabel: "Заняло",
+  searchTermLabel: "Поиск",
   statusQueued: "в очереди",
   statusStalled: "Нет ответа от загрузчика. Нажмите «Остановить» и попробуйте снова.",
   statusScanning: "Сканирование…",

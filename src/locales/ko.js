@@ -33,6 +33,7 @@ export default {
   startedLabel: "시작",
   etaLabel: "예상 완료",
   tookLabel: "소요",
+  searchTermLabel: "검색",
   statusQueued: "대기 중",
   statusStalled: "응답 없음 — 다운로더가 멈췄습니다. 중지를 누르고 다시 시도하세요.",
   statusScanning: "검색 중…",

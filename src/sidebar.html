@@ -374,10 +374,39 @@
     }
 
     .log-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      font-weight: 600;
+    }
+
+    .log-title-text {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* The ?q= term of a search run, shown as "(⌕ Steampunk Truck)" after the
+       gallery name. Shares the title's line so the card keeps its height, and
+       shrinks last so the name truncates before the term does. */
+    .log-search {
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: 55%;
       font-weight: 600;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      color: var(--foreground);
+    }
+
+    .log-search-icon {
+      width: 12px;
+      height: 12px;
+      vertical-align: -1px;
+      opacity: 0.85;
     }
 
     .log-filename {

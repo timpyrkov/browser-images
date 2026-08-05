@@ -174,13 +174,27 @@ async function getIndexLinks(options = {}) {
       // Relayed to the sidebar so a multi-minute walk shows a live count
       // instead of looking hung.
       onProgress: (count, total) => {
-        try { chrome.runtime.sendMessage({ command: 'harvest-progress', count, total }); } catch (e) {}
+        try {
+          chrome.runtime.sendMessage({
+            command: 'harvest-progress', count, total, searchQuery: options.searchQuery || null,
+          });
+        } catch (e) {}
       },
       shouldStop: () => self.__BI_HARVEST_CANCELLED__ === true,
     });
   } catch (error) {
     console.warn('[Content] Index link collection failed:', error);
     return [];
+  }
+}
+
+function getIndexSearchTerm() {
+  const parser = findParser(location.hostname);
+  if (!parser || typeof parser.indexSearchTerm !== 'function') return null;
+  try {
+    return parser.indexSearchTerm(document, location.href);
+  } catch (error) {
+    return null;
   }
 }
 
@@ -204,10 +218,12 @@ if (!self.__BI_CONTENT_LISTENER__) {
   if (request.command === 'find-index-links') {
     (async () => {
       try {
-        const links = await getIndexLinks(request.options || {});
+        const searchQuery = getIndexSearchTerm();
+        const links = await getIndexLinks({ ...(request.options || {}), searchQuery });
         sendResponse({
           status: 'found-links',
           links,
+          searchQuery,
           isIndexView: isIndexViewUrl(location.hostname, location.pathname),
           title: document.title?.trim() || location.hostname,
           url: location.href,
