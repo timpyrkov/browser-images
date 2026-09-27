@@ -20,6 +20,8 @@ export default {
   skipDownloadedTitle: "Salta le immagini già presenti nella cronologia dei download del browser",
   preferPreviewLabel: "Preferisci dimensione anteprima",
   preferPreviewTitle: "Scarica la versione di anteprima, più piccola, invece del file a dimensione piena",
+  skipVideosLabel: "Salta i video",
+  skipVideosTitle: "Scarica solo immagini, senza i video",
   expandGalleriesLabel: "Scarica intera galleria",
   expandGalleriesTitle: "Espandi una pagina di galleria o ricerca nelle singole opere e scaricale tutte",
   galleryPaginateLabel: "Segui le pagine della galleria",

@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = window.DEFAULT_SETTINGS || {
   rateLimit: 0.5,
   skipDownloaded: true,
   preferPreview: false,
+  skipVideos: false,
   expandGalleries: false,
   galleryPaginate: true,
   batchSize: 10,
@@ -116,6 +117,8 @@ function applyTranslations() {
   $('skipDownloadedLabel').title = t(lang, 'skipDownloadedTitle');
   setText($('preferPreviewLabel'), t(lang, 'preferPreviewLabel'));
   $('preferPreviewLabel').title = t(lang, 'preferPreviewTitle');
+  setText($('skipVideosLabel'), t(lang, 'skipVideosLabel'));
+  $('skipVideosLabel').title = t(lang, 'skipVideosTitle');
   setText($('expandGalleriesLabel'), t(lang, 'expandGalleriesLabel'));
   $('expandGalleriesLabel').title = t(lang, 'expandGalleriesTitle');
   setText($('galleryPaginateLabel'), t(lang, 'galleryPaginateLabel'));
@@ -258,6 +261,10 @@ function bindSettingsPanel() {
 
   $('preferPreview').addEventListener('change', async () => {
     await saveSettings({ preferPreview: $('preferPreview').checked });
+  });
+
+  $('skipVideos').addEventListener('change', async () => {
+    await saveSettings({ skipVideos: $('skipVideos').checked });
   });
 
   $('expandGalleries').addEventListener('change', async () => {
@@ -739,6 +746,7 @@ function applyLoadedSettings() {
   $('rateLimit').value = state.settings.rateLimit;
   $('skipDownloaded').checked = state.settings.skipDownloaded !== false;
   $('preferPreview').checked = state.settings.preferPreview === true;
+  $('skipVideos').checked = state.settings.skipVideos === true;
   $('expandGalleries').checked = state.settings.expandGalleries === true;
   $('galleryPaginate').checked = state.settings.galleryPaginate !== false;
   $('batchSize').value = state.settings.batchSize ?? 30;

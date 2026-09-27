@@ -20,6 +20,8 @@ export default {
   skipDownloadedTitle: "Bilder überspringen, die bereits im Download-Verlauf des Browsers stehen",
   preferPreviewLabel: "Vorschaugröße bevorzugen",
   preferPreviewTitle: "Die kleinere Vorschauversion statt der Datei in voller Größe herunterladen",
+  skipVideosLabel: "Videos überspringen",
+  skipVideosTitle: "Nur Bilder herunterladen, keine Videos",
   expandGalleriesLabel: "Ganze Galerie herunterladen",
   expandGalleriesTitle: "Eine Galerie- oder Suchseite in ihre einzelnen Werke auffächern und alle herunterladen",
   galleryPaginateLabel: "Galerieseiten folgen",

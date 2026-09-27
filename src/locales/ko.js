@@ -20,6 +20,8 @@ export default {
   skipDownloadedTitle: "브라우저 다운로드 기록에 이미 있는 이미지를 건너뜁니다",
   preferPreviewLabel: "미리보기 크기 우선",
   preferPreviewTitle: "전체 크기 파일 대신 더 작은 미리보기 버전을 다운로드합니다",
+  skipVideosLabel: "동영상 건너뛰기",
+  skipVideosTitle: "동영상은 제외하고 이미지만 다운로드합니다",
   expandGalleriesLabel: "갤러리 전체 다운로드",
   expandGalleriesTitle: "갤러리 또는 검색 페이지를 개별 작품으로 펼쳐 모두 다운로드합니다",
   galleryPaginateLabel: "갤러리 페이지 따라가기",

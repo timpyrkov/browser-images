@@ -20,6 +20,8 @@ export default {
   skipDownloadedTitle: "ブラウザーのダウンロード履歴にすでにある画像をスキップします",
   preferPreviewLabel: "プレビューサイズを優先",
   preferPreviewTitle: "フルサイズのファイルではなく、小さいプレビュー版をダウンロードします",
+  skipVideosLabel: "動画をスキップ",
+  skipVideosTitle: "動画は除き、画像のみをダウンロードします",
   expandGalleriesLabel: "ギャラリー全体をダウンロード",
   expandGalleriesTitle: "ギャラリーまたは検索ページを個々の作品に展開し、すべてダウンロードします",
   galleryPaginateLabel: "ギャラリーのページを辿る",

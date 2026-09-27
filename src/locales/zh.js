@@ -20,6 +20,8 @@ export default {
   skipDownloadedTitle: "跳过浏览器下载历史中已有的图片",
   preferPreviewLabel: "优先使用预览尺寸",
   preferPreviewTitle: "下载较小的预览版本，而不是完整尺寸的文件",
+  skipVideosLabel: "跳过视频",
+  skipVideosTitle: "仅下载图片，不下载视频",
   expandGalleriesLabel: "下载整个图库",
   expandGalleriesTitle: "将图库或搜索页面展开为单个作品并全部下载",
   galleryPaginateLabel: "跟随图库分页",

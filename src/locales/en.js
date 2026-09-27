@@ -20,6 +20,8 @@ export default {
   skipDownloadedTitle: "Skip images already present in the browser's download history",
   preferPreviewLabel: "Prefer preview size",
   preferPreviewTitle: "Download the gallery's smaller preview rendition instead of the full-size file",
+  skipVideosLabel: "Skip videos",
+  skipVideosTitle: "Download only images, leaving videos alone",
   expandGalleriesLabel: "Download whole gallery",
   expandGalleriesTitle: "Expand a gallery or search page into its individual artworks and download each one",
   galleryPaginateLabel: "Follow gallery pages",

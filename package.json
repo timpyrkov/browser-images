@@ -5,11 +5,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "node --check src/defaults.js && node --check src/naming.js && node --check src/background.js && node --check src/content.js && node --check src/sidebar.js && node --check src/i18n.js && node --check src/languages.js && for f in src/galleries/*.js; do node --check \"$f\"; done && for f in src/locales/*.js; do node --check \"$f\"; done && node --check build.cjs",
+    "lint": "node --check src/defaults.js && node --check src/naming.js && node --check src/background.js && node --check src/content.js && node --check src/sidebar.js && node --check src/i18n.js && node --check src/languages.js && for f in src/galleries/*.js; do node --check \"$f\"; done && for f in src/locales/*.js; do node --check \"$f\"; done && node --check build.cjs && node --check test/run.cjs",
     "build:firefox": "node build.cjs firefox",
     "build:chrome": "node build.cjs chrome",
-    "build": "npm run lint && npm run build:firefox && npm run build:chrome",
-    "clean": "rm -rf dist"
+    "build": "npm run lint && npm test && npm run build:firefox && npm run build:chrome",
+    "package:firefox": "npm run build:firefox && rm -f image-downloader-gallery-tabs-firefox.zip && cd dist/firefox && zip -qrX -FS ../../image-downloader-gallery-tabs-firefox.zip . -x '*.DS_Store'",
+    "clean": "rm -rf dist",
+    "test": "node test/run.cjs"
   },
   "author": "Tim Pyrkov",
   "license": "MIT"

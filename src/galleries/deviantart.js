@@ -324,6 +324,24 @@
     return fromState && String(fromState).trim() ? String(fromState).trim() : null;
   }
 
+  /**
+   * How the index page is ordered ("newest", "oldest", "popular", ...).
+   * The URL wins when it carries ?order=; otherwise the page state says what
+   * the UI is actually showing, and DeviantArt defaults galleries to newest.
+   */
+  function indexSortOrder(href, state) {
+    try {
+      const fromUrl = new URL(href, 'https://www.deviantart.com').searchParams.get('order');
+      if (fromUrl && fromUrl.trim()) return fromUrl.trim().toLowerCase();
+    } catch (error) { /* fall through to the state */ }
+    const section = state && state.gallectionSection;
+    if (section && section.sortOrder) return String(section.sortOrder).toLowerCase();
+    const streams = (state && state['@@streams']) || {};
+    const key = Object.keys(streams).find((k) => k.startsWith('folder-deviations'));
+    const effective = key && streams[key].streamParams && streams[key].streamParams.effectiveOrder;
+    return effective ? String(effective).toLowerCase() : null;
+  }
+
   /** Only an unfiltered folder listing has a trustworthy embedded stream. */
   function stateIsTrustworthy(href, state) {
     if (indexSearchQuery(href, state)) return false;
@@ -614,6 +632,10 @@
       /** The `?q=` term filtering this index page, or null. */
       indexSearchTerm(doc, href) {
         return indexSearchQuery(href, getDeviantArtStateFromPage(doc));
+      },
+      /** "newest" / "oldest" / "popular" / null. */
+      indexSortOrder(doc, href) {
+        return indexSortOrder(href, getDeviantArtStateFromPage(doc));
       },
       /**
        * Parse a deviation straight from fetched HTML. Service workers have no

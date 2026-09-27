@@ -50,6 +50,9 @@ const DEFAULT_SETTINGS = {
   // file. Shared across all galleries; currently honoured by DeviantArt.
   preferPreview: false,
 
+  // Download only images, leaving videos (mp4/webm/...) alone.
+  skipVideos: false,
+
   // Expand a gallery / search index tab into its individual deviations and
   // download each of them. Currently honoured by DeviantArt.
   expandGalleries: false,

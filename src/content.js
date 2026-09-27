@@ -188,6 +188,16 @@ async function getIndexLinks(options = {}) {
   }
 }
 
+function getIndexSortOrder() {
+  const parser = findParser(location.hostname);
+  if (!parser || typeof parser.indexSortOrder !== 'function') return null;
+  try {
+    return parser.indexSortOrder(document, location.href);
+  } catch (error) {
+    return null;
+  }
+}
+
 function getIndexSearchTerm() {
   const parser = findParser(location.hostname);
   if (!parser || typeof parser.indexSearchTerm !== 'function') return null;
@@ -224,6 +234,7 @@ if (!self.__BI_CONTENT_LISTENER__) {
           status: 'found-links',
           links,
           searchQuery,
+          sortOrder: getIndexSortOrder(),
           isIndexView: isIndexViewUrl(location.hostname, location.pathname),
           title: document.title?.trim() || location.hostname,
           url: location.href,

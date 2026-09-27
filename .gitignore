@@ -34,3 +34,9 @@ replay_pid*
 
 # Node.js dependencies
 /node_modules/
+
+# Private/local guides
+/opera_guidelines
+opera_guide.md
+chrome_guide.md
+amo_guide.md

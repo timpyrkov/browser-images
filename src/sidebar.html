@@ -359,6 +359,12 @@
       border-bottom: 1px solid var(--border);
     }
 
+    /* The actions bar already draws the divider under the list, so the final
+       row must not draw one too -- otherwise two rules sit a few pixels apart. */
+    .log-row:last-child {
+      border-bottom: none;
+    }
+
     .log-thumb {
       width: 48px;
       height: 48px;
@@ -440,12 +446,23 @@
     .status-error { color: var(--color-error); }
     .status-scanning { color: var(--primary-1); }
 
-    .welcome-text,
-    .loading-text {
+    .welcome-text {
       color: var(--text-secondary);
       font-style: italic;
       text-align: center;
       margin-top: 2em;
+    }
+
+    /* Sits under the actions bar, keeping the divider that used to sit above
+       it so the notice stays visually separated from the buttons. The rule is
+       on the element itself, so it disappears with the message. */
+    .loading-text {
+      color: var(--text-secondary);
+      font-style: italic;
+      text-align: center;
+      margin-top: 1em;
+      padding-top: 1em;
+      border-top: 1px solid var(--border);
     }
 
     .error-text {
@@ -526,6 +543,10 @@
           <label id="preferPreviewLabel" for="preferPreview">Prefer preview size</label>
         </div>
         <div class="form-group checkbox-group">
+          <input type="checkbox" id="skipVideos" />
+          <label id="skipVideosLabel" for="skipVideos">Skip videos</label>
+        </div>
+        <div class="form-group checkbox-group">
           <input type="checkbox" id="expandGalleries" />
           <label id="expandGalleriesLabel" for="expandGalleries">Download whole gallery</label>
         </div>
@@ -555,12 +576,14 @@
       </div>
       <div id="logList"></div>
       <div class="welcome-text" id="welcomeText">Open image-detail tabs and click <strong>Download</strong> to start.</div>
-      <div class="loading-text" id="statusText" style="display: none;"></div>
       <div class="actions-bar" id="actionsBar">
         <button id="closeDownloadedTabsBtn" class="btn btn-yellow btn-sm" disabled>Close downloaded tabs</button>
         <button id="resetLogBtn" class="btn btn-green btn-sm">Clear list</button>
         <button id="stopBtn" class="btn btn-red btn-sm" disabled>Stop</button>
       </div>
+      <!-- Progress and notices sit BELOW the buttons, so the controls never
+           shift position as messages come and go. -->
+      <div class="loading-text" id="statusText" style="display: none;"></div>
     </div>
   </div>
 

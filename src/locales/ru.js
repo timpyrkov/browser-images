@@ -20,6 +20,8 @@ export default {
   skipDownloadedTitle: "Пропускать изображения, уже имеющиеся в истории загрузок браузера",
   preferPreviewLabel: "Предпочитать превью",
   preferPreviewTitle: "Загружать уменьшенную версию предпросмотра вместо файла в полном размере",
+  skipVideosLabel: "Пропускать видео",
+  skipVideosTitle: "Загружать только изображения, без видео",
   expandGalleriesLabel: "Скачать всю галерею",
   expandGalleriesTitle: "Развернуть страницу галереи или поиска в отдельные работы и скачать каждую",
   galleryPaginateLabel: "Переходить по страницам галереи",

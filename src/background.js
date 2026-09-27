@@ -156,6 +156,17 @@ function isVideoFilename(filename) {
   return VIDEO_EXTENSIONS.has(normalizeExtension(ext));
 }
 
+/**
+ * Drop videos when the user only wants images. Filtering here rather than in
+ * the parsers keeps it one rule for every gallery, and the dropped count is
+ * reported as skipped rather than vanishing silently.
+ */
+function withoutVideos(images, skipVideos) {
+  if (!skipVideos) return { keep: images, dropped: 0 };
+  const keep = images.filter((image) => !isVideoFilename(image.filename || ''));
+  return { keep, dropped: images.length - keep.length };
+}
+
 function pickSubfolder(filename, galleryPath) {
   if (isVideoFilename(filename)) {
     return galleryPath?.videos || 'MOV';
@@ -384,6 +395,28 @@ function logItem(tab, status, extra = {}) {
   };
 }
 
+/*
+ * Early stop for date-filtered gallery runs.
+ *
+ * A newest-first listing is ordered by publish date, so once a deviation is
+ * older than the cutoff every later one is older still and there is nothing
+ * left worth fetching. The grace day guards the boundary: DeviantArt's dates
+ * are day-resolution and timezone-shifted, so stopping the instant we cross
+ * maxDate could clip an item published the same day.
+ *
+ * Two conditions must both hold, because stopping early on a wrongly-ordered
+ * list would silently miss artwork: the page must report newest-first, AND the
+ * dates seen so far must actually have been non-increasing.
+ */
+const EARLY_STOP_GRACE_DAYS = 1;
+
+function shiftDate(ymd, days) {
+  const date = new Date(`${ymd}T00:00:00Z`);
+  if (isNaN(date)) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().split('T')[0];
+}
+
 /**
  * Projected finish time from the rate achieved so far, or 0 while there is not
  * yet enough evidence. Deviations vary a lot in image count, so a handful of
@@ -412,7 +445,12 @@ function projectFinish(startedAt, done, total) {
  */
 async function downloadIndexTab(tab, links, ctx) {
   const { parser, galleryPath, throttle, skipDownloaded, preferPreview, maxDate, batchSize,
-    searchQuery } = ctx;
+    searchQuery, skipVideos, sortOrder } = ctx;
+  const cutoffDate = maxDate && sortOrder === 'newest'
+    ? shiftDate(maxDate, -EARLY_STOP_GRACE_DAYS) : null;
+  let previousDate = null;
+  let datesDescending = true;
+  let stoppedAtCutoff = false;
   const counts = { downloaded: 0, skipped: 0, error: 0 };
   let thumbUrl = '';
   const startedAt = Date.now();
@@ -422,7 +460,7 @@ async function downloadIndexTab(tab, links, ctx) {
   const skippedReasons = new Set();      // e.g. subscription locked, literature
   const size = Math.max(1, Number(batchSize) || DEFAULT_SETTINGS.batchSize);
 
-  for (let start = 0; start < links.length && !isCancelled() && !abandoned;) {
+  for (let start = 0; start < links.length && !isCancelled() && !abandoned && !stoppedAtCutoff;) {
     // Shrink the burst while throttled: concurrent fetches are exactly what an
     // adaptive limiter reacts to, so back-pressure should reduce them first.
     const burst = throttle.level > 0 ? Math.max(1, Math.floor(size / (throttle.level + 1))) : size;
@@ -482,12 +520,30 @@ async function downloadIndexTab(tab, links, ctx) {
         console.log(`[Download] Skipping ${page.url}: ${parsed.unavailable || 'no downloadable media'}`);
         continue;
       }
+      // Track the ordering as we go: a single out-of-order date is enough to
+      // distrust the listing and fall back to walking all of it.
+      if (parsed.pageDate) {
+        if (previousDate && parsed.pageDate > previousDate) datesDescending = false;
+        previousDate = parsed.pageDate;
+      }
+
       if (maxDate && parsed.pageDate && parsed.pageDate < maxDate) {
         counts.skipped++;
+        if (cutoffDate && datesDescending && parsed.pageDate < cutoffDate) {
+          stoppedAtCutoff = true;
+          console.log(`[Download] Reached ${parsed.pageDate}, past the ${maxDate} cutoff `
+            + `(${EARLY_STOP_GRACE_DAYS}-day grace); stopping after ${processed}/${links.length}.`);
+          break;
+        }
         continue;
       }
 
-      for (const image of parsed.images) {
+      const { keep: wanted, dropped: droppedVideos } = withoutVideos(parsed.images, skipVideos);
+      if (droppedVideos) {
+        counts.skipped += droppedVideos;
+        skippedReasons.add('videos');
+      }
+      for (const image of wanted) {
         if (isCancelled()) break;
         const targetFolder = pickSubfolder(image.filename, galleryPath);
         const result = await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded);
@@ -508,7 +564,8 @@ async function downloadIndexTab(tab, links, ctx) {
   const status = abandoned ? 'error'
     : counts.downloaded ? 'downloaded' : (counts.skipped ? 'skipped' : 'error');
   const throttled = throttle.hits ? ` (rate limited ${throttle.hits}x)` : '';
-  const stopped = abandoned ? ` — BLOCKED after ${processed}/${links.length}, retry later` : '';
+  const stopped = abandoned ? ` — BLOCKED after ${processed}/${links.length}, retry later`
+    : stoppedAtCutoff ? ` — reached the ${maxDate} cutoff after ${processed}/${links.length}` : '';
   const why = skippedReasons.size ? `, skipped: ${Array.from(skippedReasons).join(', ')}` : '';
   broadcast('download-progress', logItem(tab, status, {
     title: tab.title,
@@ -528,13 +585,24 @@ async function downloadIndexTab(tab, links, ctx) {
  * row for that tab. A tab counts as downloaded when at least one of its
  * images landed, so a partly-duplicate tab still reads as a success.
  */
-async function downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded) {
-  const images = response.images;
-  const allNames = images.map((image) => image.filename).join(', ');
-  const counts = { downloaded: 0, skipped: 0, error: 0 };
+async function downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos) {
+  const { keep: images, dropped: droppedVideos } = withoutVideos(response.images, skipVideos);
+  const allNames = response.images.map((image) => image.filename).join(', ');
+  const counts = { downloaded: 0, skipped: droppedVideos, error: 0 };
   let thumbUrl = '';
-  let lastReason = '';
+  let lastReason = droppedVideos ? 'video' : '';
   let lastMessage = '';
+
+  // Everything on this tab was a video and videos are switched off.
+  if (!images.length) {
+    broadcast('download-progress', logItem(tab, 'skipped', {
+      title: response.title,
+      filename: allNames,
+      reason: droppedVideos ? 'video' : 'nothing to download',
+      count: counts.skipped,
+    }));
+    return;
+  }
 
   for (let i = 0; i < images.length; i++) {
     if (isCancelled()) break;
@@ -579,7 +647,7 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
 }
 
 // Sequential download with delay
-async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize) {
+async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, skipVideos) {
   setDownloadStatus(true);
   console.log('[Download] Starting sequential download process.');
 
@@ -654,7 +722,8 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
             await downloadIndexTab(tab, response.links, {
               parser: registry[domain], galleryPath, throttle,
               skipDownloaded, preferPreview, maxDate, batchSize,
-              searchQuery: response.searchQuery || '',
+              searchQuery: response.searchQuery || '', skipVideos,
+              sortOrder: response.sortOrder || null,
             });
           }
         } else if (response && response.status === 'found-images' && response.images?.length) {
@@ -674,7 +743,7 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
               reason: 'not main image view'
             }));
           } else {
-            await downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded);
+            await downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos);
           }
         } else if (response && response.status === 'skipped') {
           console.log(`[Download] Skipped tab ${tab.id}: ${response.reason}`);
@@ -740,7 +809,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // from onMessage listener went out of scope" once it is collected.
     sendResponse({ status: 'started' });
     // Explicitly get all settings from storage, falling back to defaults.
-    chrome.storage.local.get(['folder', 'galleryPaths', 'rateLimit', 'gallery', 'maxDate', 'skipDownloaded', 'preferPreview', 'expandGalleries', 'galleryPaginate', 'batchSize'], (settings) => {
+    chrome.storage.local.get(['folder', 'galleryPaths', 'rateLimit', 'gallery', 'maxDate', 'skipDownloaded', 'preferPreview', 'expandGalleries', 'galleryPaginate', 'batchSize', 'skipVideos'], (settings) => {
       if (chrome.runtime.lastError) {
         console.error('Error getting settings:', chrome.runtime.lastError);
         return;
@@ -756,9 +825,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const expandGalleries = settings.expandGalleries ?? DEFAULT_SETTINGS.expandGalleries;
       const galleryPaginate = settings.galleryPaginate ?? DEFAULT_SETTINGS.galleryPaginate;
       const batchSize = settings.batchSize ?? DEFAULT_SETTINGS.batchSize;
+      const skipVideos = settings.skipVideos ?? DEFAULT_SETTINGS.skipVideos;
       chrome.tabs.query({ currentWindow: true }, (tabs) => {
         console.log(`[Download] Found ${tabs.length} tabs in the current window to scan.`);
-        downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize);
+        downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, skipVideos);
       });
     });
     return false; // Already answered synchronously above.
