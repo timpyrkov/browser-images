@@ -244,7 +244,7 @@ if (!self.__BI_CONTENT_LISTENER__) {
               filename: item.filename || extractImageFilename(item.imageUrl),
               title: item.title || title,
             })),
-            isMainImageView: false,
+            isMainImageView: true,
             title,
             url: location.href,
             pageDate,
