@@ -160,7 +160,26 @@
     }
   }
 
-  /** Extract board/profile grid images directly from the rendered DOM. */
+  /** Read the board pin count from the page header (e.g. "7 Pines"). */
+  function boardPinCount(doc) {
+    const el = doc.querySelector('[data-test-id="pin-count"]');
+    if (!el) return null;
+    const text = (el.textContent || '').toLowerCase();
+    if (text.includes('k')) {
+      const m = text.match(/([\d.,]+)\s*k/);
+      if (m) return Math.round(parseFloat(m[1].replace(/,/g, '.')) * 1000);
+    }
+    if (text.includes('m')) {
+      const m = text.match(/([\d.,]+)\s*m/);
+      if (m) return Math.round(parseFloat(m[1].replace(/,/g, '.')) * 1000000);
+    }
+    const digits = text.match(/\d+/);
+    return digits ? parseInt(digits[0], 10) : null;
+  }
+
+  /** Extract board/profile grid images directly from the rendered DOM.
+   *  Limited to the board's stated pin count so suggestions below "more ideas"
+   *  are not collected. */
   function extractGridImages(doc, href) {
     if (!isBoardOrProfilePage(href)) return null;
 
@@ -170,12 +189,14 @@
     if (!grid) return null;
 
     const moreIdeas = doc.querySelector('[data-test-id="more-ideas-container"]');
+    const maxPins = boardPinCount(doc) || Number.MAX_SAFE_INTEGER;
     const seen = new Set();
     const images = [];
 
     // Modern Pinterest board pages wrap each pin in gated-pin-rep / gated-pin-image.
     const pinReps = Array.from(grid.querySelectorAll('[data-test-id="gated-pin-rep"], [data-test-id="gated-pin-image"]'));
     for (const rep of pinReps) {
+      if (images.length >= maxPins) break;
       if (moreIdeas && moreIdeas.contains(rep)) continue;
       const img = rep.tagName === 'IMG' ? rep : rep.querySelector('img');
       if (!img) continue;
@@ -196,6 +217,7 @@
         })
         .sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
       for (const img of candidates) {
+        if (images.length >= maxPins) break;
         const src = resolve(img.currentSrc || img.src);
         if (!src || seen.has(src)) continue;
         seen.add(src);
