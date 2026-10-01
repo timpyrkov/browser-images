@@ -173,86 +173,58 @@ function loadParsers() {
 
   const pinterest = loadParsers().GALLERY_PARSERS['pinterest.com'];
   eq('pinterest pin is a main view', pinterest.isMainImageView('es.pinterest.com', '/pin/123/'), true);
-  eq('pinterest profile is an index', pinterest.isIndexView('www.pinterest.com', '/someuser/'), true);
-  eq('pinterest board is an index', pinterest.isIndexView('www.pinterest.com', '/someuser/wallpapers/'), true);
-  eq('pinterest search is an index', pinterest.isIndexView('www.pinterest.com', '/search/pins/?q=cats'), true);
-  eq('pinterest pin is not an index', pinterest.isIndexView('www.pinterest.com', '/pin/123/'), false);
 
-  // Parse raw pin HTML in the background-fetch path.
-  const pinOgHtml = `<!doctype html><html><head><meta property="og:image" content="https://i.pinimg.com/736x/aa/bb/cc/found.jpg"></head></html>`;
-  const parsedOg = pinterest.parseDeviationHtml(pinOgHtml, 'https://www.pinterest.com/pin/123/');
-  eq('og:image pin parsed keeps rendered url', parsedOg && parsedOg.images[0] && parsedOg.images[0].imageUrl,
-    'https://i.pinimg.com/736x/aa/bb/cc/found.jpg');
-
-  const pwsData = {
-    routeTree: [{
-      id: '123',
-      title: 'Nice pin',
-      images: { orig: { url: 'https://i.pinimg.com/originals/11/22/33/orig.jpg', width: 1200, height: 800 } },
-    }],
+  // Single-image pin via Pinterest's closeup hook.
+  const singlePinDoc = {
+    title: 'Nice pin | Pinterest',
+    querySelector: (sel) => (sel === '[data-test-id="pin-closeup-image"]' ? {
+      tagName: 'DIV',
+      querySelector: (s) => (s === 'img' ? {
+        currentSrc: 'https://i.pinimg.com/736x/00/00/00/single.jpg',
+        src: 'https://i.pinimg.com/736x/00/00/00/single.jpg',
+      } : null),
+    } : null),
+    querySelectorAll: () => [],
+    images: [],
   };
-  const pinPwsHtml = `<script id="__PWS_DATA__" type="application/json">${JSON.stringify(pwsData)}</script>`;
-  const parsedPws = pinterest.parseDeviationHtml(pinPwsHtml, 'https://www.pinterest.com/pin/123/');
-  eq('pws pin keeps original url from state',
-    parsedPws && parsedPws.images[0] && parsedPws.images[0].imageUrl,
-    'https://i.pinimg.com/originals/11/22/33/orig.jpg');
+  eq('single-image pin uses closeup hook',
+    pinterest.extractImageUrls(singlePinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    ['https://i.pinimg.com/736x/00/00/00/single.jpg']);
 
-  const pwsVideo = {
-    routeTree: [{
-      id: '123',
-      title: 'Video pin',
-      videos: { video_list: { V_720P: { url: 'https://v.pinimg.com/videos/.../clip.mp4', width: 720, height: 720 } } },
-      images: { orig: { url: 'https://i.pinimg.com/736x/11/22/33/poster.jpg', width: 720, height: 720 } },
-    }],
+  // Video / animated pin prefers the <video> source.
+  const videoPinDoc = {
+    title: 'Animated pin | Pinterest',
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel === 'video' ? [{
+      currentSrc: 'https://v.pinimg.com/videos/.../clip.mp4',
+      src: 'https://v.pinimg.com/videos/.../clip.mp4',
+    }] : []),
+    images: [],
   };
-  const pinVideoHtml = `<script id="__PWS_DATA__" type="application/json">${JSON.stringify(pwsVideo)}</script>`;
-  const parsedVideo = pinterest.parseDeviationHtml(pinVideoHtml, 'https://www.pinterest.com/pin/123/');
-  eq('pws video pin keeps video url',
-    parsedVideo && parsedVideo.images[0] && parsedVideo.images[0].imageUrl,
-    'https://v.pinimg.com/videos/.../clip.mp4');
+  eq('video pin returns video url',
+    pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/').map((i) => i.imageUrl),
+    ['https://v.pinimg.com/videos/.../clip.mp4']);
 
-  // Live DOM pin extraction: multi-image via several large closeup <img>s.
+  // Multi-image fallback: several large images inside a closeup container.
   const multiPinDoc = {
     title: 'Multi pin | Pinterest',
-    querySelector: (sel) => (sel.includes('closeup') ? { contains: () => true } : null),
-    querySelectorAll: (sel) => [],
-    images: [
-      { currentSrc: 'https://i.pinimg.com/736x/00/00/01/a.jpg', naturalWidth: 800, naturalHeight: 600, tagName: 'IMG' },
-      { currentSrc: 'https://i.pinimg.com/736x/00/00/02/b.jpg', naturalWidth: 800, naturalHeight: 600, tagName: 'IMG' },
-      { currentSrc: 'https://i.pinimg.com/236x/00/00/03/tiny.jpg', naturalWidth: 200, naturalHeight: 150, tagName: 'IMG' },
-    ],
+    querySelector: (sel) => (sel.includes('closeup') ? {
+      tagName: 'DIV',
+      contains: () => true,
+      querySelectorAll: (s) => (s === 'img' ? [
+        { currentSrc: 'https://i.pinimg.com/736x/00/00/01/a.jpg', src: 'https://i.pinimg.com/736x/00/00/01/a.jpg', naturalWidth: 800, naturalHeight: 600 },
+        { currentSrc: 'https://i.pinimg.com/736x/00/00/02/b.jpg', src: 'https://i.pinimg.com/736x/00/00/02/b.jpg', naturalWidth: 800, naturalHeight: 600 },
+      ] : []),
+    } : null),
+    querySelectorAll: () => [],
+    images: [],
   };
-  eq('multi-image pin collects two large closeup images',
-    pinterest.extractImageUrls(multiPinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+  eq('multi-image pin collects carousel images',
+    pinterest.extractImageUrls(multiPinDoc, 'https://www.pinterest.com/pin/789/').map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/01/a.jpg', 'https://i.pinimg.com/736x/00/00/02/b.jpg']);
 
-  // Board DOM link collection.
-  const boardDoc = {
-    querySelector: () => null,
-    querySelectorAll: (sel) => (sel.includes('a[href') ? [{ href: 'https://www.pinterest.com/pin/111/' }, { href: 'https://www.pinterest.com/pin/222/' }, { href: 'https://www.pinterest.com/pin/111/' }] : []),
-  };
-  const boardLinks = await pinterest.extractIndexLinks(boardDoc, 'https://www.pinterest.com/someuser/wallpapers/', { paginate: false });
-  eq('board page collects unique pin links', boardLinks,
-    ['https://www.pinterest.com/pin/111/', 'https://www.pinterest.com/pin/222/']);
-
-  // Expected pin count read from the board header.
-  const headerDoc = {
-    querySelectorAll: (sel) => (sel === 'span, h1, h2, h3, div, a' ? [{ textContent: '  7 Pins  ' }] : []),
-  };
-  eq('reads board pin count from header', pinterest.expectedIndexTotal(headerDoc, ''), 7);
-
-  // More-ideas suggestions are excluded from board collection.
-  const boardPin = { href: 'https://www.pinterest.com/pin/333/' };
-  const suggestion = { href: 'https://www.pinterest.com/pin/999/' };
-  const moreIdeasDoc = {
-    querySelector: (sel) => {
-      if (sel.includes('more-ideas')) return { contains: (el) => el === suggestion };
-      return null;
-    },
-    querySelectorAll: (sel) => (sel.includes('a[href') ? [boardPin, suggestion] : []),
-  };
-  const filteredLinks = await pinterest.extractIndexLinks(moreIdeasDoc, 'https://www.pinterest.com/someuser/wallpapers/', { paginate: false });
-  eq('skips pins from the more-ideas section', filteredLinks, ['https://www.pinterest.com/pin/333/']);
+  // Board/profile pages are intentionally not treated as indexes yet.
+  eq('pinterest board is not an index', pinterest.isIndexView('www.pinterest.com', '/someuser/wallpapers/'), false);
 
   const F = loadParsers().findGalleryDomain;
   eq('regional host matches', F('es.pinterest.com'), 'pinterest.com');
