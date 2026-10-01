@@ -216,6 +216,9 @@
     return {
       domain: 'pinterest.com',
       label: 'Pinterest',
+      // Board/profile pages have no single main image; always expand them into
+      // their grid pins, even if the global 'expandGalleries' setting is off.
+      alwaysExpandIndex: true,
       isMainImageView(hostname, pathname) {
         return /(^|\.)pinterest\./i.test(hostname || '') && isPinPage(pathname);
       },

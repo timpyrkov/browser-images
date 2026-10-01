@@ -694,10 +694,11 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
         // A gallery / search index page is expanded into its deviations;
         // anything else is scanned for its own main image.
         const parser = registry[domain];
-        const isIndex = expandGalleries && parser
+        const isIndex = parser
           && typeof parser.isIndexView === 'function'
           && parser.isIndexView(url.hostname, url.pathname)
-          && typeof parser.parseDeviationHtml === 'function';
+          && typeof parser.extractIndexLinks === 'function'
+          && (expandGalleries || parser.alwaysExpandIndex);
 
         console.log(`[Download] Sending '${isIndex ? 'find-index-links' : 'find-main-image'}' to tab ${tab.id}`);
         if (isIndex) runState.harvestTabId = tab.id;
