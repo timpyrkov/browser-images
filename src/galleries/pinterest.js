@@ -34,12 +34,32 @@
     '[data-test-id="pin-closeup-image"]',
     '[data-test-id="closeup-image"]',
     '[data-test-id="visual-search-pin-image"]',
+    '[data-test-id="pin"] img',
   ];
 
   // The closeup container is wider than the surrounding "more like this" grid.
   const CLOSEUP_CONTAINER_SELECTORS = [
     '[data-test-id="pin-closeup"]',
     '[data-test-id="closeup"]',
+    '[data-test-id="pin"]',
+  ];
+
+  // On board/profile pages we only want pins that belong to the board itself,
+  // not the "more ideas" / "more like this" infinite suggestions below it.
+  const BOARD_GRID_SELECTORS = [
+    '[data-test-id="board-feed"]',
+    '[data-test-id="board-section"]',
+    '[data-test-id="boardPins"]',
+    '[data-test-id="board-pin-grid"]',
+    '[data-test-id="board-feed-grid"]',
+    '[data-test-id="grid"]', // the first grid on a board page is usually the board
+  ];
+
+  const MORE_IDEAS_SELECTORS = [
+    '[data-test-id="more-ideas-feed"]',
+    '[data-test-id="more-ideas"]',
+    '[data-test-id="more-like-this"]',
+    '[data-test-id="related-pins"]',
   ];
 
   const PINIMG_HOST = /(^|\.)pinimg\.com$/i;
@@ -114,6 +134,13 @@
     return /^\/search\b/i.test(pathname || '');
   }
 
+  /** Pixel area from natural size, falling back to rendered size. */
+  function imageArea(img) {
+    const w = img.naturalWidth || img.width || img.clientWidth || 0;
+    const h = img.naturalHeight || img.height || img.clientHeight || 0;
+    return w * h;
+  }
+
   /**
    * Collect every large pinimg.com image inside the closeup region. Multi-image
    * pins render all carousel images at closeup size, so this naturally yields
@@ -133,9 +160,11 @@
         // Restrict to the closeup area when we found it, otherwise use a size
         // threshold that excludes the smaller "more like this" thumbnails.
         if (container && !container.contains(img)) return false;
-        return img.naturalWidth >= 300 && img.naturalHeight >= 150;
+        const w = img.naturalWidth || img.width || img.clientWidth || 0;
+        const h = img.naturalHeight || img.height || img.clientHeight || 0;
+        return w >= 300 && h >= 150;
       })
-      .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight);
+      .sort((a, b) => imageArea(b) - imageArea(a));
 
     const seen = new Set();
     const urls = [];
@@ -159,9 +188,11 @@
     const images = Array.from(doc.images || [])
       .filter((img) => {
         const src = img.currentSrc || img.src;
-        return src && isPinImage(src) && img.naturalWidth > 300 && img.naturalHeight > 150;
+        const w = img.naturalWidth || img.width || img.clientWidth || 0;
+        const h = img.naturalHeight || img.height || img.clientHeight || 0;
+        return src && isPinImage(src) && w > 300 && h > 150;
       })
-      .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight);
+      .sort((a, b) => imageArea(b) - imageArea(a));
     return images.length ? originalPinImageUrl(images[0].currentSrc || images[0].src) : null;
   }
 
@@ -172,20 +203,30 @@
       container = doc.querySelector(selector);
       if (container) break;
     }
-    const videos = Array.from(doc.querySelectorAll ? doc.querySelectorAll('video') : [])
-      .filter((v) => !container || container.contains(v));
-    const urls = [];
+    const selectors = ['video', '[data-test-id*="video"]', '[data-test-id*="Video"]'];
+    const videos = [];
     const seen = new Set();
+    for (const sel of selectors) {
+      for (const el of Array.from(doc.querySelectorAll ? doc.querySelectorAll(sel) : [])) {
+        if (seen.has(el)) continue;
+        if (el.tagName !== 'VIDEO' && !container) continue;
+        if (container && !container.contains(el) && el.tagName !== 'VIDEO') continue;
+        seen.add(el);
+        videos.push(el);
+      }
+    }
+    const urls = [];
+    const urlSeen = new Set();
     for (const video of videos) {
       const src = video.currentSrc || video.src;
-      if (src && !seen.has(src)) {
-        seen.add(src);
+      if (src && !urlSeen.has(src)) {
+        urlSeen.add(src);
         urls.push(src);
       }
       for (const source of video.querySelectorAll ? video.querySelectorAll('source') : []) {
         const ssrc = source.src || source.getAttribute('src');
-        if (ssrc && !seen.has(ssrc)) {
-          seen.add(ssrc);
+        if (ssrc && !urlSeen.has(ssrc)) {
+          urlSeen.add(ssrc);
           urls.push(ssrc);
         }
       }
@@ -298,20 +339,82 @@
     return items;
   }
 
-  /** All pin links in a board / profile / search grid, optionally scoped to an owner. */
+  /** All pin links in a board / profile / search grid, scoped to the board grid
+   *  itself and not the infinite "more ideas" suggestions below it. */
   function pinHref(href) {
     const match = String(href || '').match(PIN_URL);
     return match ? `https://www.pinterest.com/pin/${match[1]}/` : null;
   }
 
+  function findBoardGrid(doc) {
+    if (!doc.querySelector) return null;
+    for (const selector of BOARD_GRID_SELECTORS) {
+      const el = doc.querySelector(selector);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function findMoreIdeasSection(doc) {
+    if (!doc.querySelector) return null;
+    for (const selector of MORE_IDEAS_SELECTORS) {
+      const el = doc.querySelector(selector);
+      if (el) return el;
+    }
+    return null;
+  }
+
   function collectPinLinks(doc, href, sink) {
     const links = sink instanceof Set ? sink : new Set();
     if (!doc.querySelectorAll) return links;
-    Array.from(doc.querySelectorAll('a[href*="/pin/"]')).forEach((a) => {
+
+    const boardGrid = findBoardGrid(doc);
+    const moreIdeas = findMoreIdeasSection(doc);
+    const root = boardGrid || doc.documentElement || doc;
+    const anchors = Array.from(root.querySelectorAll('a[href*="/pin/"]'));
+
+    anchors.forEach((a) => {
+      // Skip pins that sit inside the "more ideas" infinite-suggestion block.
+      if (moreIdeas && moreIdeas.contains(a)) return;
+      // When no board grid was found, be stricter: only keep links that are
+      // reasonably close to the top of the page, before the suggestions start.
+      if (!boardGrid && moreIdeas) {
+        const rect = typeof a.getBoundingClientRect === 'function' ? a.getBoundingClientRect() : null;
+        const moreRect = typeof moreIdeas.getBoundingClientRect === 'function' ? moreIdeas.getBoundingClientRect() : null;
+        if (rect && moreRect && rect.top >= moreRect.top) return;
+      }
       const url = pinHref(a.href);
       if (url) links.add(url);
     });
     return links;
+  }
+
+  /** Try to read the published pin count from the board header ("7 Pins"). */
+  function expectedIndexTotal(doc, href) {
+    if (!doc.querySelectorAll) return null;
+    // Pinterest uses obfuscated class names, but the pin count text itself is
+    // a stable anchor: it ends in "Pins" / "pines" / "pin" etc. and contains a
+    // small number, optionally with K/M suffixes.
+    const nodes = doc.querySelectorAll('span, h1, h2, h3, div, a');
+    let best = null;
+    for (const el of nodes) {
+      const text = (el.textContent || '').trim();
+      if (text.length > 50 || text.length < 3) continue;
+      // Match "7 Pins", "1.2K Pins", "7 Pines", "7 pines" etc.
+      const match = /^(\d[\d.,\u00a0\u202f ]*)(?:\s*([KM]))?\s*(?:pin|pins|pines|pinn|pinnen)/i.exec(text);
+      if (!match) continue;
+      const suffix = (match[2] || '').toUpperCase();
+      const digits = match[1].replace(/[\u00a0\u202f ]/g, '');
+      let value;
+      if (suffix) {
+        value = parseFloat(digits.replace(',', '.')) * (suffix === 'M' ? 1e6 : 1e3);
+      } else {
+        value = parseInt(digits.replace(/[.,]/g, ''), 10);
+      }
+      if (!Number.isFinite(value) || value <= 0) continue;
+      if (!best || text.length < best.length) best = { value: Math.round(value), length: text.length };
+    }
+    return best ? best.value : null;
   }
 
   /** Candidate controls that advance an index page to its next batch. */
@@ -335,8 +438,9 @@
     const stopped = typeof options.shouldStop === 'function' ? options.shouldStop : () => false;
 
     const links = new Set();
+    const target = expectedIndexTotal(doc, href);
     collectPinLinks(doc, href, links);
-    report(links.size, null);
+    report(links.size, target);
     if (!paginate) return Array.from(links);
 
     const startY = (view && view.scrollY) || 0;
@@ -370,7 +474,9 @@
       } else {
         idle++;
       }
-      report(links.size, null);
+      report(links.size, target);
+      // Stop once every board pin has been collected.
+      if (target && links.size >= target) break;
     }
 
     if (view && typeof view.scrollTo === 'function') view.scrollTo(0, startY);
@@ -447,6 +553,9 @@
       },
       async extractIndexLinks(doc, href, options = {}) {
         return collectAllPinLinks(doc, href, options);
+      },
+      expectedIndexTotal(doc, href) {
+        return expectedIndexTotal(doc, href);
       },
       indexSearchTerm(doc, href) {
         try {

@@ -235,6 +235,25 @@ function loadParsers() {
   eq('board page collects unique pin links', boardLinks,
     ['https://www.pinterest.com/pin/111/', 'https://www.pinterest.com/pin/222/']);
 
+  // Expected pin count read from the board header.
+  const headerDoc = {
+    querySelectorAll: (sel) => (sel === 'span, h1, h2, h3, div, a' ? [{ textContent: '  7 Pins  ' }] : []),
+  };
+  eq('reads board pin count from header', pinterest.expectedIndexTotal(headerDoc, ''), 7);
+
+  // More-ideas suggestions are excluded from board collection.
+  const boardPin = { href: 'https://www.pinterest.com/pin/333/' };
+  const suggestion = { href: 'https://www.pinterest.com/pin/999/' };
+  const moreIdeasDoc = {
+    querySelector: (sel) => {
+      if (sel.includes('more-ideas')) return { contains: (el) => el === suggestion };
+      return null;
+    },
+    querySelectorAll: (sel) => (sel.includes('a[href') ? [boardPin, suggestion] : []),
+  };
+  const filteredLinks = await pinterest.extractIndexLinks(moreIdeasDoc, 'https://www.pinterest.com/someuser/wallpapers/', { paginate: false });
+  eq('skips pins from the more-ideas section', filteredLinks, ['https://www.pinterest.com/pin/333/']);
+
   const F = loadParsers().findGalleryDomain;
   eq('regional host matches', F('es.pinterest.com'), 'pinterest.com');
   eq('lookalike rejected', F('notx.com.evil.net'), null);
