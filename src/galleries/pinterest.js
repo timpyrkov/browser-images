@@ -45,24 +45,6 @@
     }
   }
 
-  /** True for URLs that look like an actual pin image, not site assets or
-   *  generic social-sharing images (e.g. facebook_share_image.png). Pinterest
-   *  pin images use a 32-character hex filename, while site icons and share
-   *  cards use descriptive names. */
-  function looksLikePinImage(url) {
-    if (!isPinMediaUrl(url)) return false;
-    try {
-      const pathname = new URL(url).pathname;
-      const filename = pathname.split('/').pop() || '';
-      const name = filename.replace(/\.[a-z0-9]+$/i, '');
-      // Allow 32-char hex Pinterest hashes; reject descriptive generic names.
-      if (/^[a-f0-9]{32}$/i.test(name)) return true;
-      return false;
-    } catch (error) {
-      return false;
-    }
-  }
-
   /** The <img> for a hook element, which is usually a wrapping <div>. */
   function imageIn(el) {
     if (!el) return null;
@@ -73,28 +55,27 @@
     return img.currentSrc || img.src || null;
   }
 
-  /** Largest rendered actual pin image on the page. */
+  /** Largest rendered pinimg image on the page. */
   function largestPinImage(doc) {
     const images = Array.from(doc.images || [])
       .filter((img) => {
         const src = img.currentSrc || img.src;
-        return src && looksLikePinImage(src) && img.naturalWidth > 300 && img.naturalHeight > 150;
+        return src && isPinMediaUrl(src) && img.naturalWidth > 300 && img.naturalHeight > 150;
       })
       .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight);
     return images.length ? resolve(images[0].currentSrc || images[0].src) : null;
   }
 
-  /** Scan the document HTML for all i.pinimg.com URLs that look like real pin
-   *  images, then return the largest /originals/ size available. */
+  /** Extract all i.pinimg.com image URLs from the document HTML. */
   function pinImageUrlsFromHtml(doc) {
     const html = (doc.documentElement && (doc.documentElement.outerHTML || doc.documentElement.innerHTML)) || '';
     const urls = [];
     const seen = new Set();
-    const regex = /https?:\/\/i\.pinimg\.com\/[^"'\s<>]+\/[a-f0-9]{2}\/[a-f0-9]{2}\/[a-f0-9]{2}\/[a-f0-9]{26,}\.[a-z0-9]+/gi;
+    const regex = /https?:\/\/i\.pinimg\.com\/[^"'\s<>]+\/[a-f0-9]{2}\/[a-f0-9]{2}\/[a-f0-9]{2}\/[^"'\s<>]+\.[a-z0-9]+/gi;
     let match;
     while ((match = regex.exec(html)) !== null) {
       const url = match[0];
-      if (looksLikePinImage(url) && !seen.has(url)) {
+      if (isPinMediaUrl(url) && !seen.has(url)) {
         seen.add(url);
         urls.push(url);
       }
@@ -102,22 +83,48 @@
     return urls;
   }
 
-  /** Pick the largest available size of a pin image by replacing the size
-   *  folder with /originals/ when present. */
-  function bestPinImageUrl(urls) {
+  /** Pinterest includes the real closeup image in many sizes in the page HTML.
+   *  Other images (avatars, board covers) usually appear in fewer variants. Group
+   *  by the image hash and pick the hash that occurs most often, then return the
+   *  best available size for that hash. */
+  function bestPinImageByFrequency(urls) {
     if (!urls.length) return null;
-    const originals = urls.filter((u) => u.includes('/originals/'));
+    const counts = {};
+    for (const url of urls) {
+      try {
+        const filename = new URL(url).pathname.split('/').pop() || '';
+        const hash = filename.replace(/\.[a-z0-9]+$/i, '').replace(/_\d+$/, '');
+        if (!counts[hash]) counts[hash] = { count: 0, urls: [] };
+        counts[hash].count += 1;
+        counts[hash].urls.push(url);
+      } catch (error) {
+        // ignore malformed URLs
+      }
+    }
+    const entries = Object.values(counts).sort((a, b) => b.count - a.count);
+    if (!entries.length) return null;
+    const bestUrls = entries[0].urls;
+    // Prefer /originals/, then largest /{width}x{height}/ or /{width}x/.
+    const originals = bestUrls.filter((u) => u.includes('/originals/'));
     if (originals.length) return originals[0];
-    const sized = urls.filter((u) => /\/\d{2,4}x\d{2,4}\//.test(u));
+    const sized = bestUrls.filter((u) => /\/(\d+)x(\d+)\//.test(u));
     if (sized.length) {
-      const sorted = sized.slice().sort((a, b) => {
+      return sized.slice().sort((a, b) => {
         const ma = a.match(/\/(\d+)x(\d+)\//);
         const mb = b.match(/\/(\d+)x(\d+)\//);
         return (mb ? mb[1] * mb[2] : 0) - (ma ? ma[1] * ma[2] : 0);
-      });
-      return sorted[0];
+      })[0];
     }
-    return urls[0];
+    // Square sizes like /736x/.
+    const square = bestUrls.filter((u) => /\/(\d+)x\//.test(u));
+    if (square.length) {
+      return square.slice().sort((a, b) => {
+        const ma = a.match(/\/(\d+)x\//);
+        const mb = b.match(/\/(\d+)x\//);
+        return (mb ? parseInt(mb[1], 10) : 0) - (ma ? parseInt(ma[1], 10) : 0);
+      })[0];
+    }
+    return bestUrls[0];
   }
 
   /** All closeup <video> sources, only Pinterest-hosted. */
@@ -230,34 +237,33 @@
           return bestVideos.map((url) => ({ imageUrl: url, kind: 'video', title }));
         }
 
-        // 2. Static pin images. Validate og:image: sometimes it is a generic
-        // social-sharing image (facebook_share_image.png) rather than the
-        // actual pin. If it does not look like a real pin image, fall back to
-        // scanning the page HTML for the actual pin image hash.
-        const og = doc.querySelector("meta[property='og:image']");
-        const ogUrl = resolve(og && og.getAttribute('content'));
-        if (ogUrl && looksLikePinImage(ogUrl)) {
-          return [{ imageUrl: ogUrl, kind: 'image', title }];
-        }
-
-        const htmlImages = pinImageUrlsFromHtml(doc);
-        const bestFromHtml = bestPinImageUrl(htmlImages);
+        // 2. Static pin images. Pinterest includes the real closeup image in many
+        // sizes in the page HTML. Other images (avatars, board covers, share cards)
+        // appear less frequently. Pick the hash that occurs most often and return
+        // its best available size.
+        const htmlImageUrls = pinImageUrlsFromHtml(doc);
+        const bestFromHtml = bestPinImageByFrequency(htmlImageUrls);
         if (bestFromHtml) {
           return [{ imageUrl: bestFromHtml, kind: 'image', title }];
         }
 
-        // 3. Pinterest's live closeup hook. Used when the page HTML scan fails.
-        for (const selector of CLOSEUP_SELECTORS) {
-          const url = resolve(imageIn(doc.querySelector(selector)));
-          if (url && looksLikePinImage(url)) return [{ imageUrl: url, kind: 'image', title }];
+        // 3. Canonical og:image. Fallback when the HTML scan finds nothing usable.
+        const og = doc.querySelector("meta[property='og:image']");
+        const ogUrl = resolve(og && og.getAttribute('content'));
+        if (ogUrl && isPinMediaUrl(ogUrl)) {
+          return [{ imageUrl: ogUrl, kind: 'image', title }];
         }
 
-        // 4. Largest visible actual pinimg image.
+        // 4. Pinterest's live closeup hook. Used when og:image is missing (e.g.
+        // in-app navigation where the <head> was not rewritten).
+        for (const selector of CLOSEUP_SELECTORS) {
+          const url = resolve(imageIn(doc.querySelector(selector)));
+          if (url && isPinMediaUrl(url)) return [{ imageUrl: url, kind: 'image', title }];
+        }
+
+        // 4. Largest visible pinimg image.
         const largest = largestPinImage(doc);
         if (largest) return [{ imageUrl: largest, kind: 'image', title }];
-
-        // 5. Last resort: og:image even if it does not look like a pin image.
-        if (ogUrl && isPinMediaUrl(ogUrl)) return [{ imageUrl: ogUrl, kind: 'image', title }];
 
         return [];
       },

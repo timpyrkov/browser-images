@@ -195,88 +195,89 @@ function loadParsers() {
     };
   }
 
-  const HASH_A = '8cdedfc74d681b60c1c6cab60dcf42fe';
-  const HASH_B = 'fe7fa388b3ac508713b4b8b02efcaa5d';
-  const HASH_C = 'a511b93806ba5e3577cbb7325ff42b28';
-  const HASH_D = '27cc7086befc9cd1403ede3d83839917';
-
   // 1. Video / animated pins win over og:image; multiple quality variants of
   //    the same video are collapsed to the best one.
-  const videoHtml = '<html><head><meta property="og:image" content="https://i.pinimg.com/736x/8c/de/df/' + HASH_A + '.jpg"></head><body>'
+  const videoHtml = '<html><head><meta property="og:image" content="https://i.pinimg.com/736x/00/00/00/poster.jpg"></head><body>'
     + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_360w.mp4 '
     + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4'
     + '</body></html>';
-  const videoPinDoc = mkPinDoc({ html: videoHtml, og: 'https://i.pinimg.com/736x/8c/de/df/' + HASH_A + '.jpg' });
+  const videoPinDoc = mkPinDoc({ html: videoHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
   eq('video pin prefers expMp4 720w over poster image',
     pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/').map((i) => ({ url: i.imageUrl, kind: i.kind })),
     [{ url: 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4', kind: 'video' }]);
 
   // 1b. Same video offered in multiple codecs/sizes collapses to one best URL.
   const codecVariantsHtml = '<html><body>'
-    + 'https://v1.pinimg.com/videos/iht/hevcMp4V3/5b/5d/0f/video123_360w.mp4 '
-    + 'https://v1.pinimg.com/videos/iht/hevcMp4V4/5b/5d/0f/video123_240w.mp4 '
-    + 'https://v1.pinimg.com/videos/iht/expMp4/5b/5d/0f/video123_720w.mp4'
+    + 'https://v1.pinimg.com/videos/iht/hevcMp4V3/5b/5d/0f/hash123_360w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/hevcMp4V4/5b/5d/0f/hash123_240w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/expMp4/5b/5d/0f/hash123_720w.mp4'
     + '</body></html>';
-  const codecPinDoc = mkPinDoc({ html: codecVariantsHtml, og: 'https://i.pinimg.com/736x/8c/de/df/' + HASH_A + '.jpg' });
+  const codecPinDoc = mkPinDoc({ html: codecVariantsHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
   eq('single video with multiple codec/size variants returns one best URL',
     pinterest.extractImageUrls(codecPinDoc, 'https://www.pinterest.com/pin/111/').map((i) => i.imageUrl),
-    ['https://v1.pinimg.com/videos/iht/expMp4/5b/5d/0f/video123_720w.mp4']);
+    ['https://v1.pinimg.com/videos/iht/expMp4/5b/5d/0f/hash123_720w.mp4']);
 
   // 1c. Multiple distinct videos are returned (one best-quality item each).
   const multiVideoHtml = '<html><body>'
     + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_360w.mp4 '
     + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4 '
-    + 'https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc456789_480w.mp4 '
-    + 'https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc456789_720w.mp4'
+    + 'https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc123_480w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc123_720w.mp4'
     + '</body></html>';
-  const multiVideoPinDoc = mkPinDoc({ html: multiVideoHtml, og: 'https://i.pinimg.com/736x/8c/de/df/' + HASH_A + '.jpg' });
+  const multiVideoPinDoc = mkPinDoc({ html: multiVideoHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
   eq('multi-video pin returns best quality for each distinct video',
     pinterest.extractImageUrls(multiVideoPinDoc, 'https://www.pinterest.com/pin/789/').map((i) => i.imageUrl).sort(),
-    ['https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc456789_720w.mp4', 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4']);
+    ['https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc123_720w.mp4', 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4']);
 
-  // 2. og:image is used for static pins when it is a real pin hash.
-  const ogPin = mkPinDoc({ og: 'https://i.pinimg.com/736x/8c/de/df/' + HASH_A + '.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/fe/7f/a3/' + HASH_B + '.jpg', src: 'https://i.pinimg.com/736x/fe/7f/a3/' + HASH_B + '.jpg' } });
-  eq('og:image wins over closeup selector for static pin',
-    pinterest.extractImageUrls(ogPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/736x/8c/de/df/' + HASH_A + '.jpg']);
+  // 2. Static pins: the most frequently occurring pin-image hash in the HTML is
+  //    chosen, and its best size is returned.
+  const staticHtml = '<html><body>'
+    + 'https://i.pinimg.com/736x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg '
+    + 'https://i.pinimg.com/474x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg '
+    + 'https://i.pinimg.com/236x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg '
+    + 'https://i.pinimg.com/736x/fe/7f/a3/fe7fa388b3ac508713b4b8b02efcaa5d.jpg'
+    + '</body></html>';
+  const staticPin = mkPinDoc({ html: staticHtml, og: 'https://i.pinimg.com/736x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg' });
+  eq('static pin picks most frequent image hash from HTML',
+    pinterest.extractImageUrls(staticPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    ['https://i.pinimg.com/736x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg']);
 
-  // 2b. Bogus og:image (e.g. facebook_share_image.png) is ignored and the real
-  //     pin image is recovered from the page HTML.
+  // 3. Bogus og:image is ignored when HTML scan finds the real pin image.
   const bogusOgHtml = '<html><body>'
-    + 'https://i.pinimg.com/originals/a5/11/b9/' + HASH_C + '.jpg '
-    + 'https://i.pinimg.com/736x/a5/11/b9/' + HASH_C + '.jpg'
+    + 'https://i.pinimg.com/originals/a5/11/b9/a511b93806ba5e3577cbb7325ff42b28.jpg '
+    + 'https://i.pinimg.com/736x/a5/11/b9/a511b93806ba5e3577cbb7325ff42b28.jpg'
     + '</body></html>';
   const bogusOgPin = mkPinDoc({ html: bogusOgHtml, og: 'https://i.pinimg.com/736x/00/00/00/facebook_share_image.png' });
-  eq('bogus og:image is ignored in favor of real pin image from HTML',
+  eq('bogus og:image ignored in favor of real pin image from HTML',
     pinterest.extractImageUrls(bogusOgPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/originals/a5/11/b9/' + HASH_C + '.jpg']);
+    ['https://i.pinimg.com/originals/a5/11/b9/a511b93806ba5e3577cbb7325ff42b28.jpg']);
 
-  // 3. Live DOM closeup hook is a fallback when og:image is missing.
-  const hookPin = mkPinDoc({ closeup: { currentSrc: 'https://i.pinimg.com/736x/fe/7f/a3/' + HASH_B + '.jpg', src: 'https://i.pinimg.com/736x/fe/7f/a3/' + HASH_B + '.jpg' } });
+  // 4. Live DOM closeup hook is a fallback when HTML scan is empty.
+  const hookPin = mkPinDoc({ closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
   eq('closeup hook fallback works',
     pinterest.extractImageUrls(hookPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/736x/fe/7f/a3/' + HASH_B + '.jpg']);
+    ['https://i.pinimg.com/736x/00/00/00/dom.jpg']);
 
-  // 4. Non-pinimg URLs are rejected and fall back to the next source.
-  const badOgPin = mkPinDoc({ og: 'https://evil.com/img.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/a5/11/b9/' + HASH_C + '.jpg', src: 'https://i.pinimg.com/736x/a5/11/b9/' + HASH_C + '.jpg' } });
+  // 5. Non-pinimg URLs are rejected and fall back to the next source.
+  const badOgPin = mkPinDoc({ og: 'https://evil.com/img.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/good.jpg', src: 'https://i.pinimg.com/736x/00/00/00/good.jpg' } });
   eq('non-pinimg og:image is ignored',
     pinterest.extractImageUrls(badOgPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/736x/a5/11/b9/' + HASH_C + '.jpg']);
+    ['https://i.pinimg.com/736x/00/00/00/good.jpg']);
 
-  // 5. Largest visible image fallback only considers real pin hashes.
+  // 6. Largest visible image fallback.
   const largestPinDoc = {
     title: 'Nice pin | Pinterest',
     querySelector: () => null,
     querySelectorAll: () => [],
     images: [
-      { currentSrc: 'https://i.pinimg.com/236x/00/00/00/facebook_share_image.png', src: 'https://i.pinimg.com/236x/00/00/00/facebook_share_image.png', naturalWidth: 800, naturalHeight: 600 },
-      { currentSrc: 'https://i.pinimg.com/736x/a5/11/b9/' + HASH_C + '.jpg', src: 'https://i.pinimg.com/736x/a5/11/b9/' + HASH_C + '.jpg', naturalWidth: 800, naturalHeight: 600 },
+      { currentSrc: 'https://i.pinimg.com/236x/00/00/00/tiny.jpg', src: 'https://i.pinimg.com/236x/00/00/00/tiny.jpg', naturalWidth: 200, naturalHeight: 200 },
+      { currentSrc: 'https://i.pinimg.com/736x/00/00/00/big.jpg', src: 'https://i.pinimg.com/736x/00/00/00/big.jpg', naturalWidth: 800, naturalHeight: 600 },
     ],
     documentElement: { outerHTML: '' },
   };
-  eq('largest visible image fallback ignores generic filenames',
+  eq('largest visible image fallback',
     pinterest.extractImageUrls(largestPinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/736x/a5/11/b9/' + HASH_C + '.jpg']);
+    ['https://i.pinimg.com/736x/00/00/00/big.jpg']);
 
   // Board/profile pages are not treated as indexes yet.
   eq('pinterest board is not an index', pinterest.isIndexView('www.pinterest.com', '/someuser/wallpapers/'), false);
