@@ -262,8 +262,71 @@ function loadParsers() {
     pinterest.extractImageUrls(largestPinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/big.jpg']);
 
-  // Board/profile pages are not treated as indexes yet.
-  eq('pinterest board is not an index', pinterest.isIndexView('www.pinterest.com', '/someuser/wallpapers/'), false);
+  // Board/profile pages are now treated as indexes.
+  eq('pinterest board is an index view', pinterest.isIndexView('www.pinterest.com', '/someuser/wallpapers/'), true);
+  eq('pinterest profile is an index view', pinterest.isIndexView('www.pinterest.com', '/someuser/'), true);
+  eq('pinterest pin is not an index view', pinterest.isIndexView('www.pinterest.com', '/pin/123/'), false);
+
+  // Board grid images are extracted directly from the rendered DOM.
+  const boardImg1 = {
+    currentSrc: 'https://i.pinimg.com/236x/aa/aa/aa/pin1.jpg',
+    src: 'https://i.pinimg.com/236x/aa/aa/aa/pin1.jpg',
+    tagName: 'IMG',
+    alt: 'Pin 1',
+    naturalWidth: 236,
+    naturalHeight: 354,
+    getAttribute: () => null,
+  };
+  const boardImg2 = {
+    currentSrc: 'https://i.pinimg.com/236x/bb/bb/bb/pin2.jpg',
+    src: 'https://i.pinimg.com/236x/bb/bb/bb/pin2.jpg',
+    tagName: 'IMG',
+    alt: 'Pin 2',
+    naturalWidth: 236,
+    naturalHeight: 354,
+    getAttribute: () => null,
+  };
+  const suggestionImg = {
+    currentSrc: 'https://i.pinimg.com/236x/cc/cc/cc/suggestion.jpg',
+    src: 'https://i.pinimg.com/236x/cc/cc/cc/suggestion.jpg',
+    tagName: 'IMG',
+    alt: 'Suggestion',
+    naturalWidth: 236,
+    naturalHeight: 354,
+    getAttribute: () => null,
+  };
+
+  function createMockContainer(tag, testId, children) {
+    return {
+      tagName: tag,
+      getAttribute: (attr) => (attr === 'data-test-id' ? testId : null),
+      querySelectorAll: (sel) => {
+        if (sel === '[data-test-id="gated-pin-rep"], [data-test-id="gated-pin-image"]') return [];
+        if (sel === 'img') return children.filter((c) => c.tagName === 'IMG');
+        return [];
+      },
+      contains: (el) => children.includes(el),
+      children,
+    };
+  }
+
+  const moreIdeasContainer = createMockContainer('DIV', 'more-ideas-container', [suggestionImg]);
+  const boardGrid = createMockContainer('DIV', 'grid', [boardImg1, boardImg2, suggestionImg]);
+
+  const boardDoc = {
+    title: 'Chronicle | Pinterest',
+    querySelector: (sel) => {
+      if (sel === '[data-test-id="grid"]') return boardGrid;
+      if (sel === '[data-test-id="more-ideas-container"]') return moreIdeasContainer;
+      return null;
+    },
+    querySelectorAll: () => [],
+    images: [boardImg1, boardImg2, suggestionImg],
+  };
+  const boardResult = pinterest.extractIndexLinks(boardDoc, 'https://www.pinterest.com/someuser/wallpapers/', {});
+  eq('board page extracts grid images and excludes more-ideas',
+    boardResult && boardResult.images ? boardResult.images.map((i) => i.imageUrl) : [],
+    ['https://i.pinimg.com/236x/aa/aa/aa/pin1.jpg', 'https://i.pinimg.com/236x/bb/bb/bb/pin2.jpg']);
 
   const F = loadParsers().findGalleryDomain;
   eq('regional host matches', F('es.pinterest.com'), 'pinterest.com');

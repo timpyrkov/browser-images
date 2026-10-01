@@ -16,8 +16,10 @@
 //    image URL Pinterest exposes to crawlers and which downloads reliably.
 // 3. If the user navigated in-app and og:image is stale, fall back to the live
 //    DOM closeup hook / largest visible pinimg image.
-// Board/profile pages are not harvested because Pinterest serves JS-rendered
-// app-shell HTML on background fetches.
+// 4. Board / profile pages: Pinterest renders these as a JS app-shell, so the
+//    background script cannot fetch individual pin pages. Instead, the grid
+//    thumbnail images are extracted directly in the content script and
+//    downloaded as-is. Suggestions below "more ideas" are excluded.
 (function (global) {
   'use strict';
 
@@ -143,6 +145,67 @@
     return /\/pin\/\d+/.test(href || '');
   }
 
+  /** True if this is a board or profile index page. */
+  function isBoardOrProfilePage(href) {
+    try {
+      const pathname = new URL(href, 'https://www.pinterest.com').pathname;
+      if (!/(^|\.)pinterest\./i.test(new URL(href, 'https://www.pinterest.com').hostname)) return false;
+      // Exclude known non-gallery paths.
+      if (/^\/(business|about|careers|policy|legal|community|settings|search)\//.test(pathname)) return false;
+      if (/^\/pin\/\d+/.test(pathname)) return false;
+      // /username/ or /username/board-name/
+      return /^\/[^/]+\/?$/.test(pathname) || /^\/[^/]+\/[^/]+\/?$/.test(pathname);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /** Extract board/profile grid images directly from the rendered DOM. */
+  function extractGridImages(doc, href) {
+    if (!isBoardOrProfilePage(href)) return null;
+
+    const grid = doc.querySelector('[data-test-id="grid"]')
+      || doc.querySelector('[data-test-id="feed"]')
+      || doc.querySelector('[data-test-id="masonry-container"]');
+    if (!grid) return null;
+
+    const moreIdeas = doc.querySelector('[data-test-id="more-ideas-container"]');
+    const seen = new Set();
+    const images = [];
+
+    // Modern Pinterest board pages wrap each pin in gated-pin-rep / gated-pin-image.
+    const pinReps = Array.from(grid.querySelectorAll('[data-test-id="gated-pin-rep"], [data-test-id="gated-pin-image"]'));
+    for (const rep of pinReps) {
+      if (moreIdeas && moreIdeas.contains(rep)) continue;
+      const img = rep.tagName === 'IMG' ? rep : rep.querySelector('img');
+      if (!img) continue;
+      const src = resolve(img.currentSrc || img.src);
+      if (!src || !isPinMediaUrl(src) || seen.has(src)) continue;
+      seen.add(src);
+      images.push({ imageUrl: src, kind: 'image', title: img.alt || img.title || '' });
+    }
+
+    // Fallback: if no gated-pin reps were found, grab the largest images inside
+    // the grid, excluding the more-ideas section.
+    if (!images.length) {
+      const candidates = Array.from(grid.querySelectorAll('img'))
+        .filter((img) => {
+          if (moreIdeas && moreIdeas.contains(img)) return false;
+          const src = img.currentSrc || img.src;
+          return src && isPinMediaUrl(src) && img.naturalWidth >= 150 && img.naturalHeight >= 150;
+        })
+        .sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
+      for (const img of candidates) {
+        const src = resolve(img.currentSrc || img.src);
+        if (!src || seen.has(src)) continue;
+        seen.add(src);
+        images.push({ imageUrl: src, kind: 'image', title: img.alt || img.title || '' });
+      }
+    }
+
+    return images.length ? images : null;
+  }
+
   function createPinterestParser() {
     return {
       domain: 'pinterest.com',
@@ -150,16 +213,22 @@
       isMainImageView(hostname, pathname) {
         return /(^|\.)pinterest\./i.test(hostname || '') && isPinPage(pathname);
       },
-      isIndexView() {
-        // Board / profile / search harvesting is disabled. Pinterest pages are
-        // rendered by JS, so collecting pin links and fetching each one from
-        // the background script yields empty app-shell HTML and fails every
-        // download. Supporting boards properly requires extracting grid images
-        // directly in the content script, which is a larger change.
-        return false;
+      isIndexView(hostname, pathname) {
+        return /(^|\.)pinterest\./i.test(hostname || '') && isBoardOrProfilePage(pathname);
       },
       extractPageDate(doc) {
         return helpers.getPageDate ? helpers.getPageDate(doc) : null;
+      },
+      parseDeviationHtml() {
+        // Pinterest board/profile pages cannot be parsed from raw HTML: the
+        // server returns an app shell and the pin grid is rendered by JS. This
+        // method exists only so background.js recognises the parser supports
+        // index pages; actual grid images are extracted in the content script.
+        return null;
+      },
+      extractIndexLinks(doc, href) {
+        const images = extractGridImages(doc, href);
+        return images ? { images } : [];
       },
       extractImageUrls(doc, href) {
         if (!isPinPage(href || (doc.location && doc.location.pathname))) return [];

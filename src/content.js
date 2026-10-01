@@ -229,10 +229,31 @@ if (!self.__BI_CONTENT_LISTENER__) {
     (async () => {
       try {
         const searchQuery = getIndexSearchTerm();
-        const links = await getIndexLinks({ ...(request.options || {}), searchQuery });
+        const result = await getIndexLinks({ ...(request.options || {}), searchQuery });
+        // Some parsers (e.g. Pinterest boards) return grid images directly
+        // instead of links to fetch from the background.
+        if (result && result.images && result.images.length) {
+          const parser = findParser(location.hostname);
+          const title = document.title?.trim() || location.hostname;
+          const pageDate = parser && typeof parser.extractPageDate === 'function'
+            ? parser.extractPageDate(document) : null;
+          sendResponse({
+            status: 'found-images',
+            images: result.images.map((item) => ({
+              imageUrl: item.imageUrl,
+              filename: item.filename || extractImageFilename(item.imageUrl),
+              title: item.title || title,
+            })),
+            isMainImageView: false,
+            title,
+            url: location.href,
+            pageDate,
+          });
+          return;
+        }
         sendResponse({
           status: 'found-links',
-          links,
+          links: result || [],
           searchQuery,
           sortOrder: getIndexSortOrder(),
           isIndexView: isIndexViewUrl(location.hostname, location.pathname),
