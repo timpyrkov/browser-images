@@ -66,67 +66,6 @@
     return images.length ? resolve(images[0].currentSrc || images[0].src) : null;
   }
 
-  /** Extract all i.pinimg.com image URLs from the document HTML. */
-  function pinImageUrlsFromHtml(doc) {
-    const html = (doc.documentElement && (doc.documentElement.outerHTML || doc.documentElement.innerHTML)) || '';
-    const urls = [];
-    const seen = new Set();
-    const regex = /https?:\/\/i\.pinimg\.com\/[^"'\s<>]+\/[a-f0-9]{2}\/[a-f0-9]{2}\/[a-f0-9]{2}\/[^"'\s<>]+\.[a-z0-9]+/gi;
-    let match;
-    while ((match = regex.exec(html)) !== null) {
-      const url = match[0];
-      if (isPinMediaUrl(url) && !seen.has(url)) {
-        seen.add(url);
-        urls.push(url);
-      }
-    }
-    return urls;
-  }
-
-  /** Pinterest includes the real closeup image in many sizes in the page HTML.
-   *  Other images (avatars, board covers) usually appear in fewer variants. Group
-   *  by the image hash and pick the hash that occurs most often, then return the
-   *  best available size for that hash. */
-  function bestPinImageByFrequency(urls) {
-    if (!urls.length) return null;
-    const counts = {};
-    for (const url of urls) {
-      try {
-        const filename = new URL(url).pathname.split('/').pop() || '';
-        const hash = filename.replace(/\.[a-z0-9]+$/i, '').replace(/_\d+$/, '');
-        if (!counts[hash]) counts[hash] = { count: 0, urls: [] };
-        counts[hash].count += 1;
-        counts[hash].urls.push(url);
-      } catch (error) {
-        // ignore malformed URLs
-      }
-    }
-    const entries = Object.values(counts).sort((a, b) => b.count - a.count);
-    if (!entries.length) return null;
-    const bestUrls = entries[0].urls;
-    // Prefer /originals/, then largest /{width}x{height}/ or /{width}x/.
-    const originals = bestUrls.filter((u) => u.includes('/originals/'));
-    if (originals.length) return originals[0];
-    const sized = bestUrls.filter((u) => /\/(\d+)x(\d+)\//.test(u));
-    if (sized.length) {
-      return sized.slice().sort((a, b) => {
-        const ma = a.match(/\/(\d+)x(\d+)\//);
-        const mb = b.match(/\/(\d+)x(\d+)\//);
-        return (mb ? mb[1] * mb[2] : 0) - (ma ? ma[1] * ma[2] : 0);
-      })[0];
-    }
-    // Square sizes like /736x/.
-    const square = bestUrls.filter((u) => /\/(\d+)x\//.test(u));
-    if (square.length) {
-      return square.slice().sort((a, b) => {
-        const ma = a.match(/\/(\d+)x\//);
-        const mb = b.match(/\/(\d+)x\//);
-        return (mb ? parseInt(mb[1], 10) : 0) - (ma ? parseInt(ma[1], 10) : 0);
-      })[0];
-    }
-    return bestUrls[0];
-  }
-
   /** All closeup <video> sources, only Pinterest-hosted. */
   function closeupVideoUrls(doc) {
     const urls = [];
@@ -237,24 +176,15 @@
           return bestVideos.map((url) => ({ imageUrl: url, kind: 'video', title }));
         }
 
-        // 2. Static pin images. Pinterest includes the real closeup image in many
-        // sizes in the page HTML. Other images (avatars, board covers, share cards)
-        // appear less frequently. Pick the hash that occurs most often and return
-        // its best available size.
-        const htmlImageUrls = pinImageUrlsFromHtml(doc);
-        const bestFromHtml = bestPinImageByFrequency(htmlImageUrls);
-        if (bestFromHtml) {
-          return [{ imageUrl: bestFromHtml, kind: 'image', title }];
-        }
-
-        // 3. Canonical og:image. Fallback when the HTML scan finds nothing usable.
+        // 2. Canonical og:image. This is the most reliable source for a full
+        // page load and downloads successfully with the browser's downloader.
         const og = doc.querySelector("meta[property='og:image']");
         const ogUrl = resolve(og && og.getAttribute('content'));
         if (ogUrl && isPinMediaUrl(ogUrl)) {
           return [{ imageUrl: ogUrl, kind: 'image', title }];
         }
 
-        // 4. Pinterest's live closeup hook. Used when og:image is missing (e.g.
+        // 3. Pinterest's live closeup hook. Used when og:image is missing (e.g.
         // in-app navigation where the <head> was not rewritten).
         for (const selector of CLOSEUP_SELECTORS) {
           const url = resolve(imageIn(doc.querySelector(selector)));

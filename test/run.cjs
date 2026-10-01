@@ -229,42 +229,25 @@ function loadParsers() {
     pinterest.extractImageUrls(multiVideoPinDoc, 'https://www.pinterest.com/pin/789/').map((i) => i.imageUrl).sort(),
     ['https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc123_720w.mp4', 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4']);
 
-  // 2. Static pins: the most frequently occurring pin-image hash in the HTML is
-  //    chosen, and its best size is returned.
-  const staticHtml = '<html><body>'
-    + 'https://i.pinimg.com/736x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg '
-    + 'https://i.pinimg.com/474x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg '
-    + 'https://i.pinimg.com/236x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg '
-    + 'https://i.pinimg.com/736x/fe/7f/a3/fe7fa388b3ac508713b4b8b02efcaa5d.jpg'
-    + '</body></html>';
-  const staticPin = mkPinDoc({ html: staticHtml, og: 'https://i.pinimg.com/736x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg' });
-  eq('static pin picks most frequent image hash from HTML',
-    pinterest.extractImageUrls(staticPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/736x/8c/de/df/8cdedfc74d681b60c1c6cab60dcf42fe.jpg']);
+  // 2. og:image is used for static pins.
+  const ogPin = mkPinDoc({ og: 'https://i.pinimg.com/736x/00/00/00/og.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
+  eq('og:image wins over closeup selector for static pin',
+    pinterest.extractImageUrls(ogPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    ['https://i.pinimg.com/736x/00/00/00/og.jpg']);
 
-  // 3. Bogus og:image is ignored when HTML scan finds the real pin image.
-  const bogusOgHtml = '<html><body>'
-    + 'https://i.pinimg.com/originals/a5/11/b9/a511b93806ba5e3577cbb7325ff42b28.jpg '
-    + 'https://i.pinimg.com/736x/a5/11/b9/a511b93806ba5e3577cbb7325ff42b28.jpg'
-    + '</body></html>';
-  const bogusOgPin = mkPinDoc({ html: bogusOgHtml, og: 'https://i.pinimg.com/736x/00/00/00/facebook_share_image.png' });
-  eq('bogus og:image ignored in favor of real pin image from HTML',
-    pinterest.extractImageUrls(bogusOgPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/originals/a5/11/b9/a511b93806ba5e3577cbb7325ff42b28.jpg']);
-
-  // 4. Live DOM closeup hook is a fallback when HTML scan is empty.
+  // 3. Live DOM closeup hook is a fallback when og:image is missing.
   const hookPin = mkPinDoc({ closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
   eq('closeup hook fallback works',
     pinterest.extractImageUrls(hookPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/dom.jpg']);
 
-  // 5. Non-pinimg URLs are rejected and fall back to the next source.
+  // 4. Non-pinimg URLs are rejected and fall back to the next source.
   const badOgPin = mkPinDoc({ og: 'https://evil.com/img.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/good.jpg', src: 'https://i.pinimg.com/736x/00/00/00/good.jpg' } });
   eq('non-pinimg og:image is ignored',
     pinterest.extractImageUrls(badOgPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/good.jpg']);
 
-  // 6. Largest visible image fallback.
+  // 5. Largest visible image fallback.
   const largestPinDoc = {
     title: 'Nice pin | Pinterest',
     querySelector: () => null,
