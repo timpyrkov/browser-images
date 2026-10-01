@@ -195,7 +195,8 @@ function loadParsers() {
     };
   }
 
-  // 1. Video / animated pins win over og:image.
+  // 1. Video / animated pins win over og:image; multiple quality variants of
+  //    the same video are collapsed to the best one.
   const videoHtml = '<html><head><meta property="og:image" content="https://i.pinimg.com/736x/00/00/00/poster.jpg"></head><body>'
     + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_360w.mp4 '
     + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4'
@@ -204,6 +205,18 @@ function loadParsers() {
   eq('video pin prefers expMp4 720w over poster image',
     pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/').map((i) => ({ url: i.imageUrl, kind: i.kind })),
     [{ url: 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4', kind: 'video' }]);
+
+  // 1b. Multiple distinct videos are returned (one best-quality item each).
+  const multiVideoHtml = '<html><body>'
+    + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_360w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc123_480w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc123_720w.mp4'
+    + '</body></html>';
+  const multiVideoPinDoc = mkPinDoc({ html: multiVideoHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
+  eq('multi-video pin returns best quality for each distinct video',
+    pinterest.extractImageUrls(multiVideoPinDoc, 'https://www.pinterest.com/pin/789/').map((i) => i.imageUrl).sort(),
+    ['https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc123_720w.mp4', 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4']);
 
   // 2. og:image is used for static pins.
   const ogPin = mkPinDoc({ og: 'https://i.pinimg.com/736x/00/00/00/og.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });

@@ -66,21 +66,29 @@
     return images.length ? resolve(images[0].currentSrc || images[0].src) : null;
   }
 
-  /** Closeup <video> source, if any. Only accepts Pinterest-hosted media. */
-  function closeupVideoUrl(doc) {
+  /** All closeup <video> sources, only Pinterest-hosted. */
+  function closeupVideoUrls(doc) {
+    const urls = [];
+    const seen = new Set();
     const container = doc.querySelector('[data-test-id="pin-closeup"]')
       || doc.querySelector('[data-test-id="closeup"]');
     const videos = Array.from(doc.querySelectorAll ? doc.querySelectorAll('video') : [])
       .filter((v) => !container || container.contains(v));
     for (const video of videos) {
       const src = video.currentSrc || video.src;
-      if (src && isPinMediaUrl(src)) return src;
+      if (src && isPinMediaUrl(src) && !seen.has(src)) {
+        seen.add(src);
+        urls.push(src);
+      }
       for (const source of video.querySelectorAll ? video.querySelectorAll('source') : []) {
         const ssrc = source.src || source.getAttribute('src');
-        if (ssrc && isPinMediaUrl(ssrc)) return ssrc;
+        if (ssrc && isPinMediaUrl(ssrc) && !seen.has(ssrc)) {
+          seen.add(ssrc);
+          urls.push(ssrc);
+        }
       }
     }
-    return null;
+    return urls;
   }
 
   /** Pinterest video URLs appear in the page HTML even in the app-shell state. */
@@ -100,18 +108,22 @@
     return urls;
   }
 
-  /** Prefer H.264 expMp4 over HEVC, and higher width suffixes. */
-  function bestVideoUrl(urls) {
-    if (!urls.length) return null;
-    const scored = urls.map((url) => {
+  /** Given a list of MP4 variants, group by base video ID and keep the best
+   *  quality (expMp4 > hevc, highest width) for each distinct video. */
+  function uniqueBestVideoUrls(urls) {
+    if (!urls.length) return [];
+    const groups = {};
+    for (const url of urls) {
+      const base = url.replace(/_\d+w\.mp4(?:[?#].*)?$/, '.mp4');
       let score = 0;
       if (url.includes('/expMp4/')) score += 10000;
       const resMatch = url.match(/_(\d+)w\.mp4/);
       if (resMatch) score += parseInt(resMatch[1], 10);
-      return { url, score };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    return scored[0].url;
+      if (!groups[base] || groups[base].score < score) {
+        groups[base] = { url, score };
+      }
+    }
+    return Object.values(groups).map((g) => g.url);
   }
 
   /** True if this is a /pin/{id} detail page. Accepts a pathname or full URL. */
@@ -141,14 +153,15 @@
         if (!isPinPage(href || (doc.location && doc.location.pathname))) return [];
         const title = doc.title ? doc.title.replace(/\s*\|\s*Pinterest\s*$/i, '').trim() : '';
 
-        // 1. Video / animated pins. Pinterest embeds MP4 URLs in the HTML even
-        // in the app-shell state. Pick the best (expMp4, highest width) variant.
-        const domVideo = closeupVideoUrl(doc);
+        // 1. Video / animated pins. Pinterest embeds MP4 URLs in the HTML even in
+        // the app-shell state. Group variants by base video ID and return the
+        // best quality for each distinct video.
+        const domVideos = closeupVideoUrls(doc);
         const htmlVideos = videoUrlsFromHtml(doc);
-        const allVideos = domVideo ? [domVideo, ...htmlVideos] : htmlVideos;
-        const bestVideo = bestVideoUrl(allVideos);
-        if (bestVideo) {
-          return [{ imageUrl: bestVideo, kind: 'video', title }];
+        const allVideos = [...new Set([...domVideos, ...htmlVideos])];
+        const bestVideos = uniqueBestVideoUrls(allVideos);
+        if (bestVideos.length) {
+          return bestVideos.map((url) => ({ imageUrl: url, kind: 'video', title }));
         }
 
         // 2. Canonical og:image. This is the most reliable source for a full
