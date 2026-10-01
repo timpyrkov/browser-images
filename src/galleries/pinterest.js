@@ -8,11 +8,16 @@
 // to 9240824173..., location.href updated and the closeup <img> followed, while
 // og:image still pointed at the previous pin.
 //
-// Strategy: use the <meta property="og:image"> URL first — it is the canonical
-// closeup image URL that Pinterest exposes to crawlers and it downloads
-// reliably. If the user navigated in-app and og:image is stale, fall back to
-// the live DOM closeup hook. Board/profile pages are not harvested because
-// Pinterest serves JS-rendered app-shell HTML on background fetches.
+// Strategy:
+// 1. Video / animated pins: Pinterest embeds MP4 URLs (usually on v1.pinimg.com)
+//    in the page HTML. Find them, pick the best quality/expMp4 variant, and
+//    return the video URL.
+// 2. Static pins: use <meta property="og:image">, which is the canonical closeup
+//    image URL Pinterest exposes to crawlers and which downloads reliably.
+// 3. If the user navigated in-app and og:image is stale, fall back to the live
+//    DOM closeup hook / largest visible pinimg image.
+// Board/profile pages are not harvested because Pinterest serves JS-rendered
+// app-shell HTML on background fetches.
 (function (global) {
   'use strict';
 
@@ -78,6 +83,37 @@
     return null;
   }
 
+  /** Pinterest video URLs appear in the page HTML even in the app-shell state. */
+  function videoUrlsFromHtml(doc) {
+    const html = (doc.documentElement && (doc.documentElement.outerHTML || doc.documentElement.innerHTML)) || '';
+    const urls = [];
+    const seen = new Set();
+    const regex = /https?:\/\/[^"'\s<>]+\.pinimg\.com\/videos\/[^"'\s<>]+\.mp4/g;
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      const url = match[0];
+      if (!seen.has(url)) {
+        seen.add(url);
+        urls.push(url);
+      }
+    }
+    return urls;
+  }
+
+  /** Prefer H.264 expMp4 over HEVC, and higher width suffixes. */
+  function bestVideoUrl(urls) {
+    if (!urls.length) return null;
+    const scored = urls.map((url) => {
+      let score = 0;
+      if (url.includes('/expMp4/')) score += 10000;
+      const resMatch = url.match(/_(\d+)w\.mp4/);
+      if (resMatch) score += parseInt(resMatch[1], 10);
+      return { url, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored[0].url;
+  }
+
   /** True if this is a /pin/{id} detail page. Accepts a pathname or full URL. */
   function isPinPage(href) {
     return /\/pin\/\d+/.test(href || '');
@@ -105,7 +141,17 @@
         if (!isPinPage(href || (doc.location && doc.location.pathname))) return [];
         const title = doc.title ? doc.title.replace(/\s*\|\s*Pinterest\s*$/i, '').trim() : '';
 
-        // 1. Canonical og:image. This is the most reliable source for a full
+        // 1. Video / animated pins. Pinterest embeds MP4 URLs in the HTML even
+        // in the app-shell state. Pick the best (expMp4, highest width) variant.
+        const domVideo = closeupVideoUrl(doc);
+        const htmlVideos = videoUrlsFromHtml(doc);
+        const allVideos = domVideo ? [domVideo, ...htmlVideos] : htmlVideos;
+        const bestVideo = bestVideoUrl(allVideos);
+        if (bestVideo) {
+          return [{ imageUrl: bestVideo, kind: 'video', title }];
+        }
+
+        // 2. Canonical og:image. This is the most reliable source for a full
         // page load and downloads successfully with the browser's downloader.
         const og = doc.querySelector("meta[property='og:image']");
         const ogUrl = resolve(og && og.getAttribute('content'));
@@ -113,20 +159,16 @@
           return [{ imageUrl: ogUrl, kind: 'image', title }];
         }
 
-        // 2. Pinterest's live closeup hook. Used when og:image is missing (e.g.
+        // 3. Pinterest's live closeup hook. Used when og:image is missing (e.g.
         // in-app navigation where the <head> was not rewritten).
         for (const selector of CLOSEUP_SELECTORS) {
           const url = resolve(imageIn(doc.querySelector(selector)));
           if (url && isPinMediaUrl(url)) return [{ imageUrl: url, kind: 'image', title }];
         }
 
-        // 3. Largest visible pinimg image.
+        // 4. Largest visible pinimg image.
         const largest = largestPinImage(doc);
         if (largest) return [{ imageUrl: largest, kind: 'image', title }];
-
-        // 4. Animated / video pins served from Pinterest's CDN.
-        const video = closeupVideoUrl(doc);
-        if (video) return [{ imageUrl: video, kind: 'video', title }];
 
         return [];
       },

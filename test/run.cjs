@@ -174,7 +174,7 @@ function loadParsers() {
   const pinterest = loadParsers().GALLERY_PARSERS['pinterest.com'];
   eq('pinterest pin is a main view', pinterest.isMainImageView('es.pinterest.com', '/pin/123/'), true);
 
-  function mkPinDoc({ og, closeup, images = [], videos = [] }) {
+  function mkPinDoc({ og, closeup, images = [], videos = [], html = '' }) {
     return {
       title: 'Nice pin | Pinterest',
       querySelector: (sel) => {
@@ -191,28 +191,39 @@ function loadParsers() {
         return [];
       },
       images,
+      documentElement: { outerHTML: html },
     };
   }
 
-  // 1. og:image is preferred because it is the canonical, downloadable URL.
+  // 1. Video / animated pins win over og:image.
+  const videoHtml = '<html><head><meta property="og:image" content="https://i.pinimg.com/736x/00/00/00/poster.jpg"></head><body>'
+    + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_360w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4'
+    + '</body></html>';
+  const videoPinDoc = mkPinDoc({ html: videoHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
+  eq('video pin prefers expMp4 720w over poster image',
+    pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/').map((i) => ({ url: i.imageUrl, kind: i.kind })),
+    [{ url: 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4', kind: 'video' }]);
+
+  // 2. og:image is used for static pins.
   const ogPin = mkPinDoc({ og: 'https://i.pinimg.com/736x/00/00/00/og.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
-  eq('og:image wins over closeup selector',
+  eq('og:image wins over closeup selector for static pin',
     pinterest.extractImageUrls(ogPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/og.jpg']);
 
-  // 2. Live DOM closeup hook is a fallback when og:image is missing.
+  // 3. Live DOM closeup hook is a fallback when og:image is missing.
   const hookPin = mkPinDoc({ closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
   eq('closeup hook fallback works',
     pinterest.extractImageUrls(hookPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/dom.jpg']);
 
-  // 3. Non-pinimg URLs are rejected and fall back to the next source.
+  // 4. Non-pinimg URLs are rejected and fall back to the next source.
   const badOgPin = mkPinDoc({ og: 'https://evil.com/img.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/good.jpg', src: 'https://i.pinimg.com/736x/00/00/00/good.jpg' } });
   eq('non-pinimg og:image is ignored',
     pinterest.extractImageUrls(badOgPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/good.jpg']);
 
-  // 4. Largest visible image fallback.
+  // 5. Largest visible image fallback.
   const largestPinDoc = {
     title: 'Nice pin | Pinterest',
     querySelector: () => null,
@@ -221,16 +232,11 @@ function loadParsers() {
       { currentSrc: 'https://i.pinimg.com/236x/00/00/00/tiny.jpg', src: 'https://i.pinimg.com/236x/00/00/00/tiny.jpg', naturalWidth: 200, naturalHeight: 200 },
       { currentSrc: 'https://i.pinimg.com/736x/00/00/00/big.jpg', src: 'https://i.pinimg.com/736x/00/00/00/big.jpg', naturalWidth: 800, naturalHeight: 600 },
     ],
+    documentElement: { outerHTML: '' },
   };
   eq('largest visible image fallback',
     pinterest.extractImageUrls(largestPinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/big.jpg']);
-
-  // 5. Video / animated pin.
-  const videoPinDoc = mkPinDoc({ videos: [{ currentSrc: 'https://v.pinimg.com/videos/.../clip.mp4', src: 'https://v.pinimg.com/videos/.../clip.mp4' }] });
-  eq('video pin returns video url',
-    pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/').map((i) => i.imageUrl),
-    ['https://v.pinimg.com/videos/.../clip.mp4']);
 
   // Board/profile pages are not treated as indexes yet.
   eq('pinterest board is not an index', pinterest.isIndexView('www.pinterest.com', '/someuser/wallpapers/'), false);
