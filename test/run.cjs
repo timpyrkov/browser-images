@@ -174,56 +174,65 @@ function loadParsers() {
   const pinterest = loadParsers().GALLERY_PARSERS['pinterest.com'];
   eq('pinterest pin is a main view', pinterest.isMainImageView('es.pinterest.com', '/pin/123/'), true);
 
-  // Single-image pin via Pinterest's closeup hook.
-  const singlePinDoc = {
-    title: 'Nice pin | Pinterest',
-    querySelector: (sel) => (sel === '[data-test-id="pin-closeup-image"]' ? {
-      tagName: 'DIV',
-      querySelector: (s) => (s === 'img' ? {
-        currentSrc: 'https://i.pinimg.com/736x/00/00/00/single.jpg',
-        src: 'https://i.pinimg.com/736x/00/00/00/single.jpg',
-      } : null),
-    } : null),
-    querySelectorAll: () => [],
-    images: [],
-  };
-  eq('single-image pin uses closeup hook',
-    pinterest.extractImageUrls(singlePinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/736x/00/00/00/single.jpg']);
+  function mkPinDoc({ og, closeup, images = [], videos = [] }) {
+    return {
+      title: 'Nice pin | Pinterest',
+      querySelector: (sel) => {
+        if (sel === "meta[property='og:image']" && og) {
+          return { getAttribute: () => og };
+        }
+        if (sel === '[data-test-id="pin-closeup-image"]' && closeup) {
+          return { tagName: 'DIV', querySelector: () => closeup };
+        }
+        return null;
+      },
+      querySelectorAll: (sel) => {
+        if (sel === 'video') return videos;
+        return [];
+      },
+      images,
+    };
+  }
 
-  // Video / animated pin prefers the <video> source.
-  const videoPinDoc = {
-    title: 'Animated pin | Pinterest',
+  // 1. og:image is preferred because it is the canonical, downloadable URL.
+  const ogPin = mkPinDoc({ og: 'https://i.pinimg.com/736x/00/00/00/og.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
+  eq('og:image wins over closeup selector',
+    pinterest.extractImageUrls(ogPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    ['https://i.pinimg.com/736x/00/00/00/og.jpg']);
+
+  // 2. Live DOM closeup hook is a fallback when og:image is missing.
+  const hookPin = mkPinDoc({ closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
+  eq('closeup hook fallback works',
+    pinterest.extractImageUrls(hookPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    ['https://i.pinimg.com/736x/00/00/00/dom.jpg']);
+
+  // 3. Non-pinimg URLs are rejected and fall back to the next source.
+  const badOgPin = mkPinDoc({ og: 'https://evil.com/img.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/good.jpg', src: 'https://i.pinimg.com/736x/00/00/00/good.jpg' } });
+  eq('non-pinimg og:image is ignored',
+    pinterest.extractImageUrls(badOgPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    ['https://i.pinimg.com/736x/00/00/00/good.jpg']);
+
+  // 4. Largest visible image fallback.
+  const largestPinDoc = {
+    title: 'Nice pin | Pinterest',
     querySelector: () => null,
-    querySelectorAll: (sel) => (sel === 'video' ? [{
-      currentSrc: 'https://v.pinimg.com/videos/.../clip.mp4',
-      src: 'https://v.pinimg.com/videos/.../clip.mp4',
-    }] : []),
-    images: [],
+    querySelectorAll: () => [],
+    images: [
+      { currentSrc: 'https://i.pinimg.com/236x/00/00/00/tiny.jpg', src: 'https://i.pinimg.com/236x/00/00/00/tiny.jpg', naturalWidth: 200, naturalHeight: 200 },
+      { currentSrc: 'https://i.pinimg.com/736x/00/00/00/big.jpg', src: 'https://i.pinimg.com/736x/00/00/00/big.jpg', naturalWidth: 800, naturalHeight: 600 },
+    ],
   };
+  eq('largest visible image fallback',
+    pinterest.extractImageUrls(largestPinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    ['https://i.pinimg.com/736x/00/00/00/big.jpg']);
+
+  // 5. Video / animated pin.
+  const videoPinDoc = mkPinDoc({ videos: [{ currentSrc: 'https://v.pinimg.com/videos/.../clip.mp4', src: 'https://v.pinimg.com/videos/.../clip.mp4' }] });
   eq('video pin returns video url',
     pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/').map((i) => i.imageUrl),
     ['https://v.pinimg.com/videos/.../clip.mp4']);
 
-  // Multi-image fallback: several large images inside a closeup container.
-  const multiPinDoc = {
-    title: 'Multi pin | Pinterest',
-    querySelector: (sel) => (sel.includes('closeup') ? {
-      tagName: 'DIV',
-      contains: () => true,
-      querySelectorAll: (s) => (s === 'img' ? [
-        { currentSrc: 'https://i.pinimg.com/736x/00/00/01/a.jpg', src: 'https://i.pinimg.com/736x/00/00/01/a.jpg', naturalWidth: 800, naturalHeight: 600 },
-        { currentSrc: 'https://i.pinimg.com/736x/00/00/02/b.jpg', src: 'https://i.pinimg.com/736x/00/00/02/b.jpg', naturalWidth: 800, naturalHeight: 600 },
-      ] : []),
-    } : null),
-    querySelectorAll: () => [],
-    images: [],
-  };
-  eq('multi-image pin collects carousel images',
-    pinterest.extractImageUrls(multiPinDoc, 'https://www.pinterest.com/pin/789/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/736x/00/00/01/a.jpg', 'https://i.pinimg.com/736x/00/00/02/b.jpg']);
-
-  // Board/profile pages are intentionally not treated as indexes yet.
+  // Board/profile pages are not treated as indexes yet.
   eq('pinterest board is not an index', pinterest.isIndexView('www.pinterest.com', '/someuser/wallpapers/'), false);
 
   const F = loadParsers().findGalleryDomain;

@@ -8,17 +8,16 @@
 // to 9240824173..., location.href updated and the closeup <img> followed, while
 // og:image still pointed at the previous pin.
 //
-// The displayed image is read from the DOM instead, which is correct for both
-// full page loads and in-app navigation. og:image is kept only as a last resort.
-//
-// Animation / video pins are detected by looking for a <video> element in the
-// closeup. Multi-image pins use a conservative carousel fallback.
+// Strategy: use the <meta property="og:image"> URL first — it is the canonical
+// closeup image URL that Pinterest exposes to crawlers and it downloads
+// reliably. If the user navigated in-app and og:image is stale, fall back to
+// the live DOM closeup hook. Board/profile pages are not harvested because
+// Pinterest serves JS-rendered app-shell HTML on background fetches.
 (function (global) {
   'use strict';
 
   const helpers = (global && global.GALLERY_HELPERS) || {};
 
-  // Pinterest's own hooks around the closeup image, best first.
   const CLOSEUP_SELECTORS = [
     '[data-test-id="pin-closeup-image"]',
     '[data-test-id="closeup-image"]',
@@ -26,9 +25,19 @@
   ];
 
   const PINIMG_HOST = /(^|\.)pinimg\.com$/i;
+  const PINTEREST_VIDEO_HOST = /(^|\.)pinterest\.com$/i;
 
   function resolve(url) {
     return helpers.resolveImageUrl ? helpers.resolveImageUrl(url) : url || null;
+  }
+
+  function isPinMediaUrl(url) {
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      return PINIMG_HOST.test(host) || PINTEREST_VIDEO_HOST.test(host);
+    } catch (error) {
+      return false;
+    }
   }
 
   /** The <img> for a hook element, which is usually a wrapping <div>. */
@@ -41,29 +50,35 @@
     return img.currentSrc || img.src || null;
   }
 
-  function isPinImage(url) {
-    try {
-      return PINIMG_HOST.test(new URL(url).hostname);
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /** Largest rendered pinimg image on the page. Used when the test-id hooks
-   *  change: the closeup is always the biggest image in a pin view, well clear
-   *  of the 236x/474x thumbnails in the "more like this" grid below it. */
+  /** Largest rendered pinimg image on the page. */
   function largestPinImage(doc) {
     const images = Array.from(doc.images || [])
       .filter((img) => {
         const src = img.currentSrc || img.src;
-        return src && isPinImage(src) && img.naturalWidth > 300 && img.naturalHeight > 150;
+        return src && isPinMediaUrl(src) && img.naturalWidth > 300 && img.naturalHeight > 150;
       })
       .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight);
     return images.length ? resolve(images[0].currentSrc || images[0].src) : null;
   }
 
-  /** True if this is a /pin/{id} detail page. Accepts either a pathname or a
-   *  full URL. */
+  /** Closeup <video> source, if any. Only accepts Pinterest-hosted media. */
+  function closeupVideoUrl(doc) {
+    const container = doc.querySelector('[data-test-id="pin-closeup"]')
+      || doc.querySelector('[data-test-id="closeup"]');
+    const videos = Array.from(doc.querySelectorAll ? doc.querySelectorAll('video') : [])
+      .filter((v) => !container || container.contains(v));
+    for (const video of videos) {
+      const src = video.currentSrc || video.src;
+      if (src && isPinMediaUrl(src)) return src;
+      for (const source of video.querySelectorAll ? video.querySelectorAll('source') : []) {
+        const ssrc = source.src || source.getAttribute('src');
+        if (ssrc && isPinMediaUrl(ssrc)) return ssrc;
+      }
+    }
+    return null;
+  }
+
+  /** True if this is a /pin/{id} detail page. Accepts a pathname or full URL. */
   function isPinPage(href) {
     return /\/pin\/\d+/.test(href || '');
   }
@@ -75,12 +90,12 @@
       isMainImageView(hostname, pathname) {
         return /(^|\.)pinterest\./i.test(hostname || '') && isPinPage(pathname);
       },
-      isIndexView(hostname, pathname) {
-        // Board / profile / search harvesting is disabled for now. Pinterest
-        // pages are rendered by JS, so collecting pin links and fetching each
-        // one from the background script yields empty app-shell HTML and
-        // fails every download. Supporting boards properly requires extracting
-        // grid images directly in the content script, which is a larger change.
+      isIndexView() {
+        // Board / profile / search harvesting is disabled. Pinterest pages are
+        // rendered by JS, so collecting pin links and fetching each one from
+        // the background script yields empty app-shell HTML and fails every
+        // download. Supporting boards properly requires extracting grid images
+        // directly in the content script, which is a larger change.
         return false;
       },
       extractPageDate(doc) {
@@ -90,54 +105,30 @@
         if (!isPinPage(href || (doc.location && doc.location.pathname))) return [];
         const title = doc.title ? doc.title.replace(/\s*\|\s*Pinterest\s*$/i, '').trim() : '';
 
-        // Animation / video pins expose a <video> element. Prefer the video URL.
-        const videos = Array.from(doc.querySelectorAll ? doc.querySelectorAll('video') : [])
-          .map((v) => v.currentSrc || v.src)
-          .filter(Boolean);
-        if (videos.length) {
-          return videos.map((url) => ({ imageUrl: url, kind: 'video', title }));
+        // 1. Canonical og:image. This is the most reliable source for a full
+        // page load and downloads successfully with the browser's downloader.
+        const og = doc.querySelector("meta[property='og:image']");
+        const ogUrl = resolve(og && og.getAttribute('content'));
+        if (ogUrl && isPinMediaUrl(ogUrl)) {
+          return [{ imageUrl: ogUrl, kind: 'image', title }];
         }
 
-        // Pinterest's own closeup hooks are the most reliable path for
-        // single-image pins.
+        // 2. Pinterest's live closeup hook. Used when og:image is missing (e.g.
+        // in-app navigation where the <head> was not rewritten).
         for (const selector of CLOSEUP_SELECTORS) {
           const url = resolve(imageIn(doc.querySelector(selector)));
-          if (url) return [{ imageUrl: url, kind: 'image', title }];
+          if (url && isPinMediaUrl(url)) return [{ imageUrl: url, kind: 'image', title }];
         }
 
-        // Conservative multi-image / carousel fallback: only collect additional
-        // large closeup-sized images if the first hook did not match. This
-        // avoids picking up "more like this" thumbnails.
-        const closeupContainer = doc.querySelector('[data-test-id="pin-closeup"]')
-          || doc.querySelector('[data-test-id="closeup"]');
-        if (closeupContainer) {
-          const seen = new Set();
-          const urls = [];
-          const containerImages = Array.from(closeupContainer.querySelectorAll('img'))
-            .filter((img) => {
-              const src = img.currentSrc || img.src;
-              return src && isPinImage(src) && img.naturalWidth >= 300 && img.naturalHeight >= 150;
-            })
-            .sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
-          for (const img of containerImages) {
-            const src = resolve(img.currentSrc || img.src);
-            if (!seen.has(src)) {
-              seen.add(src);
-              urls.push(src);
-            }
-          }
-          if (urls.length) {
-            return urls.map((url) => ({ imageUrl: url, kind: 'image', title }));
-          }
-        }
-
+        // 3. Largest visible pinimg image.
         const largest = largestPinImage(doc);
         if (largest) return [{ imageUrl: largest, kind: 'image', title }];
 
-        // Last resort only: goes stale after in-app navigation.
-        const og = doc.querySelector("meta[property='og:image']");
-        const fallback = resolve(og && og.getAttribute('content'));
-        return fallback ? [{ imageUrl: fallback, kind: 'image', title }] : [];
+        // 4. Animated / video pins served from Pinterest's CDN.
+        const video = closeupVideoUrl(doc);
+        if (video) return [{ imageUrl: video, kind: 'video', title }];
+
+        return [];
       },
     };
   }
