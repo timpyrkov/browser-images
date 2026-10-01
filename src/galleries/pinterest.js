@@ -92,25 +92,19 @@
   }
 
   /**
-   * Pinterest image URLs embed the requested size in the path:
-   *   https://i.pinimg.com/236x/aa/bb/cc/name.jpg
-   * Upgrade any size segment to /originals/ to get the unscaled file.
+   * Pinterest serves closeup images at sizes like 236x, 474x, or 736x. The
+   * displayed image is already the largest size Pinterest has rendered in the
+   * page, so we use it as-is. Transforming the path to /originals/ often
+   * produces a 404 because Pinterest's original URL hash layout is different,
+   * so that upgrade is intentionally skipped here.
    */
-  function originalPinImageUrl(rawUrl) {
-    const resolved = resolve(rawUrl);
-    if (!resolved) return null;
-    try {
-      const url = new URL(resolved);
-      if (!PINIMG_HOST.test(url.hostname)) return resolved;
-      const parts = url.pathname.split('/');
-      // /{size}/{hash1}/{hash2}/{hash3}/{name}.jpg
-      if (parts.length < 6) return resolved;
-      if (parts[1] === 'originals') return resolved;
-      parts[1] = 'originals';
-      return `${url.origin}${parts.join('/')}${url.search}`;
-    } catch (error) {
-      return resolved;
-    }
+  /**
+   * Use the image URL as-is. Pinterest's size-segment URLs (236x, 474x, 736x)
+   * are already what the page rendered; rewriting them to /originals/ often
+   * produces 404s because the original hash layout differs.
+   */
+  function bestPinImageUrl(rawUrl) {
+    return resolve(rawUrl);
   }
 
   /** True if this is a /pin/{id} detail page. */
@@ -170,7 +164,7 @@
     const urls = [];
     for (const img of images) {
       const src = img.currentSrc || img.src;
-      const orig = originalPinImageUrl(src);
+      const orig = bestPinImageUrl(src);
       if (!seen.has(orig)) {
         seen.add(orig);
         urls.push(orig);
@@ -193,7 +187,7 @@
         return src && isPinImage(src) && w > 300 && h > 150;
       })
       .sort((a, b) => imageArea(b) - imageArea(a));
-    return images.length ? originalPinImageUrl(images[0].currentSrc || images[0].src) : null;
+    return images.length ? bestPinImageUrl(images[0].currentSrc || images[0].src) : null;
   }
 
   /** Any <video> element inside the closeup region, or the page as fallback. */
@@ -308,7 +302,7 @@
       const orig = pin.images.orig || pin.images['736x'] || pin.images['474x'] || pin.images['236x'];
       if (orig && orig.url) {
         items.push({
-          url: originalPinImageUrl(orig.url),
+          url: bestPinImageUrl(orig.url),
           kind: 'image',
           width: orig.width,
           height: orig.height,
@@ -325,7 +319,7 @@
           const img = block && block.image && (block.image.original || block.image['1200x'] || block.image['736x']);
           if (img && img.url) {
             items.push({
-              url: originalPinImageUrl(img.url),
+              url: bestPinImageUrl(img.url),
               kind: 'image',
               width: img.width,
               height: img.height,
@@ -499,7 +493,7 @@
 
     for (const selector of CLOSEUP_SELECTORS) {
       const url = resolve(imageIn(doc.querySelector(selector)));
-      if (url) return [{ url: originalPinImageUrl(url), kind: 'image', title }];
+      if (url) return [{ url: bestPinImageUrl(url), kind: 'image', title }];
     }
 
     const largest = largestPinImage(doc);
@@ -507,7 +501,7 @@
 
     const og = doc.querySelector("meta[property='og:image']");
     const fallback = resolve(og && og.getAttribute('content'));
-    return fallback ? [{ url: originalPinImageUrl(fallback), kind: 'image', title }] : [];
+    return fallback ? [{ url: bestPinImageUrl(fallback), kind: 'image', title }] : [];
   }
 
   /** Parse raw pin HTML for background fetches (service worker / fetch path). */
@@ -522,7 +516,7 @@
     const ogMatch = html.match(/<meta[^>]*property=['"]og:image['"][^>]*content=['"]([^'"]+)/i)
       || html.match(/<meta[^>]*content=['"]([^'"]*)['"][^>]*property=['"]og:image['"]/i);
     if (ogMatch && ogMatch[1]) {
-      return [{ url: originalPinImageUrl(ogMatch[1]), kind: 'image' }];
+      return [{ url: bestPinImageUrl(ogMatch[1]), kind: 'image' }];
     }
     return [];
   }

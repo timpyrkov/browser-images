@@ -181,19 +181,19 @@ function loadParsers() {
   // Parse raw pin HTML in the background-fetch path.
   const pinOgHtml = `<!doctype html><html><head><meta property="og:image" content="https://i.pinimg.com/736x/aa/bb/cc/found.jpg"></head></html>`;
   const parsedOg = pinterest.parseDeviationHtml(pinOgHtml, 'https://www.pinterest.com/pin/123/');
-  eq('og:image pin parsed', parsedOg && parsedOg.images[0] && parsedOg.images[0].imageUrl,
-    'https://i.pinimg.com/originals/aa/bb/cc/found.jpg');
+  eq('og:image pin parsed keeps rendered url', parsedOg && parsedOg.images[0] && parsedOg.images[0].imageUrl,
+    'https://i.pinimg.com/736x/aa/bb/cc/found.jpg');
 
   const pwsData = {
     routeTree: [{
       id: '123',
       title: 'Nice pin',
-      images: { orig: { url: 'https://i.pinimg.com/736x/11/22/33/orig.jpg', width: 1200, height: 800 } },
+      images: { orig: { url: 'https://i.pinimg.com/originals/11/22/33/orig.jpg', width: 1200, height: 800 } },
     }],
   };
   const pinPwsHtml = `<script id="__PWS_DATA__" type="application/json">${JSON.stringify(pwsData)}</script>`;
   const parsedPws = pinterest.parseDeviationHtml(pinPwsHtml, 'https://www.pinterest.com/pin/123/');
-  eq('pws pin url upgraded to originals',
+  eq('pws pin keeps original url from state',
     parsedPws && parsedPws.images[0] && parsedPws.images[0].imageUrl,
     'https://i.pinimg.com/originals/11/22/33/orig.jpg');
 
@@ -224,7 +224,7 @@ function loadParsers() {
   };
   eq('multi-image pin collects two large closeup images',
     pinterest.extractImageUrls(multiPinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
-    ['https://i.pinimg.com/originals/00/00/01/a.jpg', 'https://i.pinimg.com/originals/00/00/02/b.jpg']);
+    ['https://i.pinimg.com/736x/00/00/01/a.jpg', 'https://i.pinimg.com/736x/00/00/02/b.jpg']);
 
   // Board DOM link collection.
   const boardDoc = {
