@@ -183,12 +183,23 @@
   function extractGridImages(doc, href) {
     if (!isBoardOrProfilePage(href)) return null;
 
-    const grid = doc.querySelector('[data-test-id="grid"]')
-      || doc.querySelector('[data-test-id="feed"]')
-      || doc.querySelector('[data-test-id="masonry-container"]');
-    if (!grid) return null;
-
+    // Pinterest may render multiple [data-test-id="grid"] containers: one for
+    // the board and another inside the "more ideas" suggestions section. Pick
+    // the first grid that is NOT contained within more-ideas-container.
     const moreIdeas = doc.querySelector('[data-test-id="more-ideas-container"]');
+    const selectors = ['[data-test-id="grid"]', '[data-test-id="feed"]', '[data-test-id="masonry-container"]'];
+    let grid = null;
+    for (const sel of selectors) {
+      const candidates = Array.from(doc.querySelectorAll(sel));
+      for (const candidate of candidates) {
+        if (!moreIdeas || !moreIdeas.contains(candidate)) {
+          grid = candidate;
+          break;
+        }
+      }
+      if (grid) break;
+    }
+    if (!grid) return null;
     const maxPins = boardPinCount(doc) || Number.MAX_SAFE_INTEGER;
     const seen = new Set();
     const images = [];

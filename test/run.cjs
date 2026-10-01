@@ -320,7 +320,12 @@ function loadParsers() {
       if (sel === '[data-test-id="more-ideas-container"]') return moreIdeasContainer;
       return null;
     },
-    querySelectorAll: () => [],
+    querySelectorAll: (sel) => {
+      if (sel === '[data-test-id="grid"]') return [boardGrid];
+      if (sel === '[data-test-id="feed"]') return [];
+      if (sel === '[data-test-id="masonry-container"]') return [];
+      return [];
+    },
     images: [boardImg1, boardImg2, suggestionImg],
   };
   const boardResult = pinterest.extractIndexLinks(boardDoc, 'https://www.pinterest.com/someuser/wallpapers/', {});
@@ -355,7 +360,12 @@ function loadParsers() {
       if (sel === '[data-test-id="pin-count"]') return pinCountEl;
       return null;
     },
-    querySelectorAll: () => [],
+    querySelectorAll: (sel) => {
+      if (sel === '[data-test-id="grid"]') return [limitedGrid];
+      if (sel === '[data-test-id="feed"]') return [];
+      if (sel === '[data-test-id="masonry-container"]') return [];
+      return [];
+    },
     images: manyBoardImages,
   };
   const limitedResult = pinterest.extractIndexLinks(limitedBoardDoc, 'https://www.pinterest.com/someuser/wallpapers/', {});
