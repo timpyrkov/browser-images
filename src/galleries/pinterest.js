@@ -108,19 +108,31 @@
     return urls;
   }
 
-  /** Given a list of MP4 variants, group by base video ID and keep the best
+  /** Extract the stable video hash from a Pinterest MP4 URL. Different
+   *  codec/size variants of the same video share the same hash (the filename
+   *  stem before _{width}w.mp4). */
+  function videoHashFromUrl(url) {
+    try {
+      const filename = new URL(url).pathname.split('/').pop() || '';
+      return filename.replace(/_\d+w\.mp4(?:[?#].*)?$/, '');
+    } catch (error) {
+      return url.replace(/_\d+w\.mp4(?:[?#].*)?$/, '');
+    }
+  }
+
+  /** Given a list of MP4 variants, group by video hash and keep the best
    *  quality (expMp4 > hevc, highest width) for each distinct video. */
   function uniqueBestVideoUrls(urls) {
     if (!urls.length) return [];
     const groups = {};
     for (const url of urls) {
-      const base = url.replace(/_\d+w\.mp4(?:[?#].*)?$/, '.mp4');
+      const hash = videoHashFromUrl(url);
       let score = 0;
       if (url.includes('/expMp4/')) score += 10000;
       const resMatch = url.match(/_(\d+)w\.mp4/);
       if (resMatch) score += parseInt(resMatch[1], 10);
-      if (!groups[base] || groups[base].score < score) {
-        groups[base] = { url, score };
+      if (!groups[hash] || groups[hash].score < score) {
+        groups[hash] = { url, score };
       }
     }
     return Object.values(groups).map((g) => g.url);

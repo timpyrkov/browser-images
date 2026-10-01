@@ -206,7 +206,18 @@ function loadParsers() {
     pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/').map((i) => ({ url: i.imageUrl, kind: i.kind })),
     [{ url: 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4', kind: 'video' }]);
 
-  // 1b. Multiple distinct videos are returned (one best-quality item each).
+  // 1b. Same video offered in multiple codecs/sizes collapses to one best URL.
+  const codecVariantsHtml = '<html><body>'
+    + 'https://v1.pinimg.com/videos/iht/hevcMp4V3/5b/5d/0f/hash123_360w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/hevcMp4V4/5b/5d/0f/hash123_240w.mp4 '
+    + 'https://v1.pinimg.com/videos/iht/expMp4/5b/5d/0f/hash123_720w.mp4'
+    + '</body></html>';
+  const codecPinDoc = mkPinDoc({ html: codecVariantsHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
+  eq('single video with multiple codec/size variants returns one best URL',
+    pinterest.extractImageUrls(codecPinDoc, 'https://www.pinterest.com/pin/111/').map((i) => i.imageUrl),
+    ['https://v1.pinimg.com/videos/iht/expMp4/5b/5d/0f/hash123_720w.mp4']);
+
+  // 1c. Multiple distinct videos are returned (one best-quality item each).
   const multiVideoHtml = '<html><body>'
     + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_360w.mp4 '
     + 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4 '
