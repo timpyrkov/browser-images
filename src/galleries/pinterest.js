@@ -34,14 +34,12 @@
     '[data-test-id="pin-closeup-image"]',
     '[data-test-id="closeup-image"]',
     '[data-test-id="visual-search-pin-image"]',
-    '[data-test-id="pin"] img',
   ];
 
   // The closeup container is wider than the surrounding "more like this" grid.
   const CLOSEUP_CONTAINER_SELECTORS = [
     '[data-test-id="pin-closeup"]',
     '[data-test-id="closeup"]',
-    '[data-test-id="pin"]',
   ];
 
   // On board/profile pages we only want pins that belong to the board itself,
@@ -73,7 +71,9 @@
   /** The <img> for a hook element, which is usually a wrapping <div>. */
   function imageIn(el) {
     if (!el) return null;
-    const img = el.tagName === 'IMG' ? el : el.querySelector('img');
+    if (el.tagName === 'IMG') return el.currentSrc || el.src || null;
+    if (typeof el.querySelector !== 'function') return null;
+    const img = el.querySelector('img');
     if (!img) return null;
     return img.currentSrc || img.src || null;
   }
@@ -92,16 +92,9 @@
   }
 
   /**
-   * Pinterest serves closeup images at sizes like 236x, 474x, or 736x. The
-   * displayed image is already the largest size Pinterest has rendered in the
-   * page, so we use it as-is. Transforming the path to /originals/ often
-   * produces a 404 because Pinterest's original URL hash layout is different,
-   * so that upgrade is intentionally skipped here.
-   */
-  /**
-   * Use the image URL as-is. Pinterest's size-segment URLs (236x, 474x, 736x)
-   * are already what the page rendered; rewriting them to /originals/ often
-   * produces 404s because the original hash layout differs.
+   * Use the image URL exactly as Pinterest rendered it (236x, 474x, 736x, …).
+   * Rewriting the path to /originals/ often produces 404s because the original
+   * hash layout differs, so we intentionally keep the rendered URL.
    */
   function bestPinImageUrl(rawUrl) {
     return resolve(rawUrl);
@@ -138,7 +131,9 @@
   /**
    * Collect every large pinimg.com image inside the closeup region. Multi-image
    * pins render all carousel images at closeup size, so this naturally yields
-   * one item for a single pin and several for a carousel.
+   * one item for a single pin and several for a carousel. This only runs when
+   * the specific closeup selectors above did not match, and only if we can
+   * identify a closeup container, to avoid harvesting "more like this" thumbs.
    */
   function collectCloseupImages(doc) {
     let container = null;
@@ -146,14 +141,13 @@
       container = doc.querySelector(selector);
       if (container) break;
     }
+    if (!container) return [];
 
     const images = Array.from(doc.images || [])
       .filter((img) => {
         const src = img.currentSrc || img.src;
         if (!src || !isPinImage(src)) return false;
-        // Restrict to the closeup area when we found it, otherwise use a size
-        // threshold that excludes the smaller "more like this" thumbnails.
-        if (container && !container.contains(img)) return false;
+        if (!container.contains(img)) return false;
         const w = img.naturalWidth || img.width || img.clientWidth || 0;
         const h = img.naturalHeight || img.height || img.clientHeight || 0;
         return w >= 300 && h >= 150;
@@ -164,10 +158,10 @@
     const urls = [];
     for (const img of images) {
       const src = img.currentSrc || img.src;
-      const orig = bestPinImageUrl(src);
-      if (!seen.has(orig)) {
-        seen.add(orig);
-        urls.push(orig);
+      const resolved = bestPinImageUrl(src);
+      if (!seen.has(resolved)) {
+        seen.add(resolved);
+        urls.push(resolved);
       }
     }
     return urls;
@@ -358,28 +352,26 @@
     return null;
   }
 
-  function collectPinLinks(doc, href, sink) {
-    const links = sink instanceof Set ? sink : new Set();
+  /**
+   * Collect pin links in document order, stopping once the board's stated pin
+   * count is reached. Board pins are rendered before the "more ideas" infinite
+   * suggestions, so the first N unique links are the board pins.
+   */
+  function collectPinLinks(doc, maxLinks) {
+    const links = [];
+    const seen = new Set();
     if (!doc.querySelectorAll) return links;
 
-    const boardGrid = findBoardGrid(doc);
     const moreIdeas = findMoreIdeasSection(doc);
-    const root = boardGrid || doc.documentElement || doc;
-    const anchors = Array.from(root.querySelectorAll('a[href*="/pin/"]'));
-
-    anchors.forEach((a) => {
-      // Skip pins that sit inside the "more ideas" infinite-suggestion block.
-      if (moreIdeas && moreIdeas.contains(a)) return;
-      // When no board grid was found, be stricter: only keep links that are
-      // reasonably close to the top of the page, before the suggestions start.
-      if (!boardGrid && moreIdeas) {
-        const rect = typeof a.getBoundingClientRect === 'function' ? a.getBoundingClientRect() : null;
-        const moreRect = typeof moreIdeas.getBoundingClientRect === 'function' ? moreIdeas.getBoundingClientRect() : null;
-        if (rect && moreRect && rect.top >= moreRect.top) return;
-      }
+    const anchors = Array.from(doc.querySelectorAll('a[href*="/pin/"]'));
+    for (const a of anchors) {
+      if (moreIdeas && moreIdeas.contains(a)) continue;
       const url = pinHref(a.href);
-      if (url) links.add(url);
-    });
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      links.push(url);
+      if (maxLinks && links.length >= maxLinks) break;
+    }
     return links;
   }
 
@@ -391,6 +383,7 @@
     // small number, optionally with K/M suffixes.
     const nodes = doc.querySelectorAll('span, h1, h2, h3, div, a');
     let best = null;
+    const candidates = [];
     for (const el of nodes) {
       const text = (el.textContent || '').trim();
       if (text.length > 50 || text.length < 3) continue;
@@ -406,8 +399,10 @@
         value = parseInt(digits.replace(/[.,]/g, ''), 10);
       }
       if (!Number.isFinite(value) || value <= 0) continue;
+      candidates.push(text);
       if (!best || text.length < best.length) best = { value: Math.round(value), length: text.length };
     }
+    console.log('[Pinterest] pin-count candidates:', candidates.slice(0, 10), 'chosen:', best);
     return best ? best.value : null;
   }
 
@@ -431,18 +426,30 @@
     const report = typeof options.onProgress === 'function' ? options.onProgress : () => {};
     const stopped = typeof options.shouldStop === 'function' ? options.shouldStop : () => false;
 
-    const links = new Set();
     const target = expectedIndexTotal(doc, href);
-    collectPinLinks(doc, href, links);
-    report(links.size, target);
-    if (!paginate) return Array.from(links);
+    console.log('[Pinterest] board target pin count:', target, 'href:', href);
+
+    const seen = new Set();
+    const addNew = (newLinks) => {
+      for (const url of newLinks) {
+        if (!seen.has(url)) {
+          seen.add(url);
+        }
+      }
+    };
+
+    // First pass: collect links already in the DOM in document order.
+    addNew(collectPinLinks(doc, target || null));
+    report(seen.size, target);
+    console.log('[Pinterest] initial links collected:', seen.size, 'target:', target);
+    if (!paginate) return Array.from(seen).slice(0, target || seen.size);
 
     const startY = (view && view.scrollY) || 0;
     let idle = 0;
     const idleLimit = Math.max(1, options.idleRounds || 6);
 
     for (let round = 0; round < maxRounds && idle < idleLimit && !stopped(); round++) {
-      const before = links.size;
+      const before = seen.size;
       let moved = false;
 
       if (view && typeof view.scrollTo === 'function') {
@@ -451,70 +458,92 @@
         view.scrollTo(0, from + step);
         await wait(settleMs);
         moved = (view.scrollY || 0) !== from;
-        collectPinLinks(doc, href, links);
+        // Cap each collection pass at the board size so suggestions further down
+        // the DOM are ignored once we have all board pins.
+        addNew(collectPinLinks(doc, target || null));
       }
 
-      if (links.size === before && !moved) {
+      if (seen.size === before && !moved) {
         for (const button of nextPageButtons(doc)) {
           try { button.click(); } catch (error) { continue; }
           await wait(settleMs);
-          collectPinLinks(doc, href, links);
-          if (links.size > before) break;
+          addNew(collectPinLinks(doc, target || null));
+          if (seen.size > before) break;
         }
       }
 
-      if (links.size > before || moved) {
+      if (seen.size > before || moved) {
         idle = 0;
       } else {
         idle++;
       }
-      report(links.size, target);
+      report(seen.size, target);
+      console.log('[Pinterest] round', round, 'links', seen.size, 'target', target);
       // Stop once every board pin has been collected.
-      if (target && links.size >= target) break;
+      if (target && seen.size >= target) break;
     }
 
     if (view && typeof view.scrollTo === 'function') view.scrollTo(0, startY);
-    return Array.from(links);
+    const result = Array.from(seen).slice(0, target || seen.size);
+    console.log('[Pinterest] final board links:', result.length, result.slice(0, 10));
+    return result;
   }
 
   /** Build media items from the live DOM of a pin page. */
   function extractPinMediaFromDom(doc, href) {
     const title = doc.title ? doc.title.replace(/\s*\|\s*Pinterest\s*$/i, '').trim() : '';
 
+    console.log('[Pinterest] extractPinMediaFromDom', href, 'images:', (doc.images || []).length);
+
     const videoUrls = collectCloseupVideos(doc);
+    console.log('[Pinterest] closeup videos found:', videoUrls.length, videoUrls);
     if (videoUrls.length) {
       return videoUrls.map((url) => ({ url, kind: 'video', title }));
     }
 
+    // Try Pinterest's own closeup hooks first; this is the path that worked for
+    // single-image pins before any multi-image work was added.
+    for (const selector of CLOSEUP_SELECTORS) {
+      const el = doc.querySelector(selector);
+      const url = resolve(imageIn(el));
+      console.log('[Pinterest] closeup selector', selector, '=>', url ? url.slice(0, 120) : null);
+      if (url) return [{ url: bestPinImageUrl(url), kind: 'image', title }];
+    }
+
+    // Multi-image / carousel pins: if the specific hook did not match but we
+    // found a closeup container, collect every large image inside it.
     const imageUrls = collectCloseupImages(doc);
+    console.log('[Pinterest] closeup container images found:', imageUrls.length, imageUrls);
     if (imageUrls.length) {
       return imageUrls.map((url) => ({ url, kind: 'image', title }));
     }
 
-    for (const selector of CLOSEUP_SELECTORS) {
-      const url = resolve(imageIn(doc.querySelector(selector)));
-      if (url) return [{ url: bestPinImageUrl(url), kind: 'image', title }];
-    }
-
     const largest = largestPinImage(doc);
+    console.log('[Pinterest] largest pinimg image:', largest ? largest.slice(0, 120) : null);
     if (largest) return [{ url: largest, kind: 'image', title }];
 
     const og = doc.querySelector("meta[property='og:image']");
     const fallback = resolve(og && og.getAttribute('content'));
+    console.log('[Pinterest] og:image fallback:', fallback ? fallback.slice(0, 120) : null);
     return fallback ? [{ url: bestPinImageUrl(fallback), kind: 'image', title }] : [];
   }
 
   /** Parse raw pin HTML for background fetches (service worker / fetch path). */
   function parsePinHtml(html, href) {
     const pinId = pinIdFromUrl(href);
+    console.log('[Pinterest] parsePinHtml', href, 'pinId:', pinId, 'html length:', html ? html.length : 0);
     const data = extractPwsData(html);
+    console.log('[Pinterest] __PWS_DATA__ found:', !!data);
     const pin = data ? findPinInState(data, pinId) : null;
     if (pin) {
-      return itemsFromPinState(pin);
+      const items = itemsFromPinState(pin);
+      console.log('[Pinterest] parsed from PWS data:', items.length, items.map((i) => i.url.slice(0, 120)));
+      return items;
     }
     // Fallback: look for JSON-LD or og:image.
     const ogMatch = html.match(/<meta[^>]*property=['"]og:image['"][^>]*content=['"]([^'"]+)/i)
       || html.match(/<meta[^>]*content=['"]([^'"]*)['"][^>]*property=['"]og:image['"]/i);
+    console.log('[Pinterest] og:image match:', ogMatch ? ogMatch[1].slice(0, 120) : null);
     if (ogMatch && ogMatch[1]) {
       return [{ url: bestPinImageUrl(ogMatch[1]), kind: 'image' }];
     }
