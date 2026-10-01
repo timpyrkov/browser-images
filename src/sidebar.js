@@ -23,22 +23,8 @@ const DEFAULT_SETTINGS = window.DEFAULT_SETTINGS || {
 // that script failed to load, so it is sorted here too.
 const SUPPORTED_GALLERIES = ((typeof window !== 'undefined' && window.SUPPORTED_GALLERIES) || [
   { key: 'artstation.com', label: 'ArtStation' },
-  { key: 'behance.net', label: 'Behance' },
-  { key: 'bsky.app', label: 'Bluesky' },
   { key: 'deviantart.com', label: 'DeviantArt' },
-  { key: 'dribbble.com', label: 'Dribbble' },
-  { key: 'flickr.com', label: 'Flickr' },
-  { key: 'imgur.com', label: 'Imgur' },
-  { key: 'instagram.com', label: 'Instagram' },
   { key: 'pinterest.com', label: 'Pinterest' },
-  { key: 'pixiv.net', label: 'Pixiv' },
-  { key: 'reddit.com', label: 'Reddit' },
-  { key: 'tumblr.com', label: 'Tumblr' },
-  { key: 'x.com', label: 'X (Twitter)' },
-  { key: 'unsplash.com', label: 'Unsplash' },
-  { key: '500px.com', label: '500px' },
-  { key: 'wallhaven.cc', label: 'Wallhaven' },
-  { key: 'zerochan.net', label: 'Zerochan' },
 ]).slice().sort((a, b) => a.label.localeCompare(b.label));
 
 const state = {

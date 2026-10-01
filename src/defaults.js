@@ -9,22 +9,8 @@ const DEFAULT_SETTINGS = {
   // browser's Downloads directory. Each key maps to { images, videos }.
   galleryPaths: {
     'artstation.com': { images: 'PIC', videos: 'MOV' },
-    'behance.net': { images: 'PIC', videos: 'MOV' },
-    'bsky.app': { images: 'PIC', videos: 'MOV' },
     'deviantart.com': { images: 'PIC', videos: 'MOV' },
-    'dribbble.com': { images: 'PIC', videos: 'MOV' },
-    'flickr.com': { images: 'PIC', videos: 'MOV' },
-    'imgur.com': { images: 'PIC', videos: 'MOV' },
-    'instagram.com': { images: 'PIC', videos: 'MOV' },
     'pinterest.com': { images: 'PIC', videos: 'MOV' },
-    'pixiv.net': { images: 'PIC', videos: 'MOV' },
-    'reddit.com': { images: 'PIC', videos: 'MOV' },
-    'tumblr.com': { images: 'PIC', videos: 'MOV' },
-    'x.com': { images: 'PIC', videos: 'MOV' },
-    'unsplash.com': { images: 'PIC', videos: 'MOV' },
-    '500px.com': { images: 'PIC', videos: 'MOV' },
-    'wallhaven.cc': { images: 'PIC', videos: 'MOV' },
-    'zerochan.net': { images: 'PIC', videos: 'MOV' },
   },
 
   // Theme: 'dark' or 'light'.

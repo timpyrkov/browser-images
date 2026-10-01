@@ -103,6 +103,34 @@ If you want to use the extension permanently in Firefox (not just as a temporary
 
 ---
 
+## Supported Galleries
+
+The extension currently provides dedicated support for:
+
+- ArtStation
+- DeviantArt
+- Pinterest
+
+## Roadmap
+
+The following previously registered galleries need dedicated parsing, testing,
+and maintenance before they can be enabled again:
+
+- [ ] 500px
+- [ ] Behance
+- [ ] Bluesky
+- [ ] Dribbble
+- [ ] Flickr
+- [ ] Imgur
+- [ ] Instagram
+- [ ] Pixiv
+- [ ] Reddit
+- [ ] Tumblr
+- [ ] Unsplash
+- [ ] Wallhaven
+- [ ] X (Twitter)
+- [ ] Zerochan
+
 ## Project To-Do & Nice-to-Have Features
 
 This is a list of potential improvements and features for the future.
