@@ -160,80 +160,53 @@
     }
   }
 
-  /** Read the board pin count from the page header (e.g. "7 Pines"). */
-  function boardPinCount(doc) {
-    const el = doc.querySelector('[data-test-id="pin-count"]');
-    if (!el) return null;
-    const text = (el.textContent || '').toLowerCase();
-    if (text.includes('k')) {
-      const m = text.match(/([\d.,]+)\s*k/);
-      if (m) return Math.round(parseFloat(m[1].replace(/,/g, '.')) * 1000);
+  /** Find the "more ideas" / "more like this" separator in the document. */
+  function findMoreIdeasMarker(doc) {
+    const byTestId = doc.querySelector('[data-test-id="more-ideas-container"]');
+    if (byTestId) return byTestId;
+    const headings = doc.querySelectorAll('h1, h2, h3, h4, span, div, p');
+    const re = /más ideas|more ideas|more like this|más como esto|similar ideas/i;
+    for (const el of headings) {
+      if (re.test(el.textContent || '')) return el;
     }
-    if (text.includes('m')) {
-      const m = text.match(/([\d.,]+)\s*m/);
-      if (m) return Math.round(parseFloat(m[1].replace(/,/g, '.')) * 1000000);
-    }
-    const digits = text.match(/\d+/);
-    return digits ? parseInt(digits[0], 10) : null;
+    return null;
+  }
+
+  /** True if element a appears before element b in document order. */
+  function isBefore(a, b) {
+    if (!a || !b) return true;
+    if (a === b) return false;
+    if (typeof b.compareDocumentPosition !== 'function') return true;
+    const preceding = (typeof Node !== 'undefined' && Node.DOCUMENT_POSITION_PRECEDING) || 2;
+    return !!(b.compareDocumentPosition(a) & preceding);
   }
 
   /** Extract board/profile grid images directly from the rendered DOM.
-   *  Limited to the board's stated pin count so suggestions below "more ideas"
-   *  are not collected. */
+   *  The gallery pins are the pinimg.com images that appear BEFORE the
+   *  "more ideas" / "más ideas" separator in document order. */
   function extractGridImages(doc, href) {
     if (!isBoardOrProfilePage(href)) return null;
 
-    // Pinterest may render multiple [data-test-id="grid"] containers: one for
-    // the board and another inside the "more ideas" suggestions section. Pick
-    // the first grid that is NOT contained within more-ideas-container.
-    const moreIdeas = doc.querySelector('[data-test-id="more-ideas-container"]');
-    const selectors = ['[data-test-id="grid"]', '[data-test-id="feed"]', '[data-test-id="masonry-container"]'];
-    let grid = null;
-    for (const sel of selectors) {
-      const candidates = Array.from(doc.querySelectorAll(sel));
-      for (const candidate of candidates) {
-        if (!moreIdeas || !moreIdeas.contains(candidate)) {
-          grid = candidate;
-          break;
-        }
-      }
-      if (grid) break;
-    }
-    if (!grid) return null;
-    const maxPins = boardPinCount(doc) || Number.MAX_SAFE_INTEGER;
+    const moreIdeas = findMoreIdeasMarker(doc);
     const seen = new Set();
     const images = [];
 
-    // Modern Pinterest board pages wrap each pin in gated-pin-rep / gated-pin-image.
-    const pinReps = Array.from(grid.querySelectorAll('[data-test-id="gated-pin-rep"], [data-test-id="gated-pin-image"]'));
-    for (const rep of pinReps) {
-      if (images.length >= maxPins) break;
-      if (moreIdeas && moreIdeas.contains(rep)) continue;
-      const img = rep.tagName === 'IMG' ? rep : rep.querySelector('img');
-      if (!img) continue;
+    // Walk document.images in document order. Collect large pinimg images
+    // that appear before the "more ideas" separator.
+    const candidates = Array.from(doc.images || [])
+      .filter((img) => {
+        const src = img.currentSrc || img.src;
+        if (!src || !isPinMediaUrl(src)) return false;
+        if (img.naturalWidth < 150 || img.naturalHeight < 150) return false;
+        if (moreIdeas && !isBefore(img, moreIdeas)) return false;
+        return true;
+      });
+
+    for (const img of candidates) {
       const src = resolve(img.currentSrc || img.src);
-      if (!src || !isPinMediaUrl(src) || seen.has(src)) continue;
+      if (!src || seen.has(src)) continue;
       seen.add(src);
       images.push({ imageUrl: src, kind: 'image', title: img.alt || img.title || '' });
-    }
-
-    // Fallback: if no gated-pin reps were found, grab the largest images inside
-    // the grid, excluding the more-ideas section.
-    if (!images.length) {
-      const candidates = Array.from(grid.querySelectorAll('img'))
-        .filter((img) => {
-          if (moreIdeas && moreIdeas.contains(img)) return false;
-          const src = img.currentSrc || img.src;
-          return src && isPinMediaUrl(src) && img.naturalWidth >= 150 && img.naturalHeight >= 150;
-        })
-        .sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
-      for (const img of candidates) {
-        if (images.length >= maxPins) break;
-        const src = resolve(img.currentSrc || img.src);
-        if (!src || seen.has(src)) continue;
-        seen.add(src);
-        images.push({ imageUrl: src, kind: 'image', title: img.alt || img.title || '' });
-      }
     }
 
     return images.length ? images : null;

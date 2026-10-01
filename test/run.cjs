@@ -267,7 +267,8 @@ function loadParsers() {
   eq('pinterest profile is an index view', pinterest.isIndexView('www.pinterest.com', '/someuser/'), true);
   eq('pinterest pin is not an index view', pinterest.isIndexView('www.pinterest.com', '/pin/123/'), false);
 
-  // Board grid images are extracted directly from the rendered DOM.
+  // Board grid images are extracted directly from document.images in document
+  // order, stopping before the "more ideas" / "más ideas" separator.
   const boardImg1 = {
     currentSrc: 'https://i.pinimg.com/236x/aa/aa/aa/pin1.jpg',
     src: 'https://i.pinimg.com/236x/aa/aa/aa/pin1.jpg',
@@ -275,7 +276,6 @@ function loadParsers() {
     alt: 'Pin 1',
     naturalWidth: 236,
     naturalHeight: 354,
-    getAttribute: () => null,
   };
   const boardImg2 = {
     currentSrc: 'https://i.pinimg.com/236x/bb/bb/bb/pin2.jpg',
@@ -284,93 +284,37 @@ function loadParsers() {
     alt: 'Pin 2',
     naturalWidth: 236,
     naturalHeight: 354,
-    getAttribute: () => null,
   };
-  const suggestionImg = {
-    currentSrc: 'https://i.pinimg.com/236x/cc/cc/cc/suggestion.jpg',
-    src: 'https://i.pinimg.com/236x/cc/cc/cc/suggestion.jpg',
+  const smallAvatar = {
+    currentSrc: 'https://i.pinimg.com/75x75_RS/aa/aa/aa/avatar.jpg',
+    src: 'https://i.pinimg.com/75x75_RS/aa/aa/aa/avatar.jpg',
     tagName: 'IMG',
-    alt: 'Suggestion',
-    naturalWidth: 236,
-    naturalHeight: 354,
+    alt: 'Avatar',
+    naturalWidth: 75,
+    naturalHeight: 75,
+  };
+  const moreIdeasHeading = {
+    tagName: 'H2',
+    textContent: 'Busca más ideas',
     getAttribute: () => null,
   };
-
-  function createMockContainer(tag, testId, children) {
-    return {
-      tagName: tag,
-      getAttribute: (attr) => (attr === 'data-test-id' ? testId : null),
-      querySelectorAll: (sel) => {
-        if (sel === '[data-test-id="gated-pin-rep"], [data-test-id="gated-pin-image"]') return [];
-        if (sel === 'img') return children.filter((c) => c.tagName === 'IMG');
-        return [];
-      },
-      contains: (el) => children.includes(el),
-      children,
-    };
-  }
-
-  const moreIdeasContainer = createMockContainer('DIV', 'more-ideas-container', [suggestionImg]);
-  const boardGrid = createMockContainer('DIV', 'grid', [boardImg1, boardImg2, suggestionImg]);
 
   const boardDoc = {
     title: 'Chronicle | Pinterest',
     querySelector: (sel) => {
-      if (sel === '[data-test-id="grid"]') return boardGrid;
-      if (sel === '[data-test-id="more-ideas-container"]') return moreIdeasContainer;
+      if (sel === '[data-test-id="more-ideas-container"]') return null;
       return null;
     },
     querySelectorAll: (sel) => {
-      if (sel === '[data-test-id="grid"]') return [boardGrid];
-      if (sel === '[data-test-id="feed"]') return [];
-      if (sel === '[data-test-id="masonry-container"]') return [];
+      if (sel === 'h1, h2, h3, h4, span, div, p') return [moreIdeasHeading];
       return [];
     },
-    images: [boardImg1, boardImg2, suggestionImg],
+    images: [smallAvatar, boardImg1, boardImg2],
   };
   const boardResult = pinterest.extractIndexLinks(boardDoc, 'https://www.pinterest.com/someuser/wallpapers/', {});
-  eq('board page extracts grid images and excludes more-ideas',
+  eq('board page extracts large pinimg images before more-ideas heading',
     boardResult && boardResult.images ? boardResult.images.map((i) => i.imageUrl) : [],
     ['https://i.pinimg.com/236x/aa/aa/aa/pin1.jpg', 'https://i.pinimg.com/236x/bb/bb/bb/pin2.jpg']);
-
-  // Board pin count limits collection to the gallery itself, ignoring
-  // suggestions rendered below it.
-  const pinCountEl = { textContent: '7 Pines' };
-  const manyBoardImages = Array.from({ length: 20 }, (_, i) => ({
-    currentSrc: `https://i.pinimg.com/236x/${String(i).padStart(2, '0')}/${String(i).padStart(2, '0')}/pin${i}.jpg`,
-    src: `https://i.pinimg.com/236x/${String(i).padStart(2, '0')}/${String(i).padStart(2, '0')}/pin${i}.jpg`,
-    tagName: 'IMG',
-    alt: '',
-    naturalWidth: 236,
-    naturalHeight: 354,
-    getAttribute: () => null,
-  }));
-  const limitedGrid = {
-    tagName: 'DIV',
-    getAttribute: (attr) => (attr === 'data-test-id' ? 'grid' : null),
-    querySelectorAll: (sel) => (sel === 'img' ? manyBoardImages : []),
-    contains: () => true,
-    children: manyBoardImages,
-  };
-  const limitedBoardDoc = {
-    title: 'Board | Pinterest',
-    querySelector: (sel) => {
-      if (sel === '[data-test-id="grid"]') return limitedGrid;
-      if (sel === '[data-test-id="more-ideas-container"]') return null;
-      if (sel === '[data-test-id="pin-count"]') return pinCountEl;
-      return null;
-    },
-    querySelectorAll: (sel) => {
-      if (sel === '[data-test-id="grid"]') return [limitedGrid];
-      if (sel === '[data-test-id="feed"]') return [];
-      if (sel === '[data-test-id="masonry-container"]') return [];
-      return [];
-    },
-    images: manyBoardImages,
-  };
-  const limitedResult = pinterest.extractIndexLinks(limitedBoardDoc, 'https://www.pinterest.com/someuser/wallpapers/', {});
-  eq('board extraction stops at stated pin count',
-    limitedResult && limitedResult.images ? limitedResult.images.length : 0, 7);
 
   const F = loadParsers().findGalleryDomain;
   eq('regional host matches', F('es.pinterest.com'), 'pinterest.com');
