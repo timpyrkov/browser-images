@@ -28,8 +28,9 @@ function loadNaming() {
 // the background. `openTabs` are the tab ids tabs.query({}) reports.
 // `sidePanel`: 'ok' mimics Chrome, 'fails' a side panel API that rejects,
 // absent mimics Yandex / Opera (no chrome.sidePanel).
-function loadBackground({ history = [], failUrls = [], interrupts = {}, session = {}, openTabs = [], sidePanel } = {}) {
-  const broadcasts = [], started = [], intervals = [], fetched = [], removed = [], localRemoved = [];
+function loadBackground({ history = [], failUrls = [], interrupts = {}, session = {}, openTabs = [], sidePanel,
+  scriptResult } = {}) {
+  const broadcasts = [], started = [], intervals = [], fetched = [], removed = [], localRemoved = [], scriptCalls = [];
   const panel = { behavior: [], popups: [], onStartup: [] };
   const finalState = {};
   let handler = null;
@@ -65,7 +66,10 @@ function loadBackground({ history = [], failUrls = [], interrupts = {}, session 
       tabs: { query: (q, cb) => (cb ? cb([]) : Promise.resolve(openTabs.map((id) => ({ id })))),
         remove: (ids) => { removed.push(...ids); return Promise.resolve(); },
         sendMessage: () => Promise.resolve() },
-      scripting: { executeScript: () => Promise.resolve() } } };
+      scripting: { executeScript: (options) => {
+        scriptCalls.push(options);
+        return Promise.resolve(scriptResult === undefined ? [] : [{ result: scriptResult }]);
+      } } } };
   if (sidePanel) {
     s.chrome.sidePanel = {
       open: () => Promise.resolve(),
@@ -78,11 +82,14 @@ function loadBackground({ history = [], failUrls = [], interrupts = {}, session 
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/background.js'), 'utf8'), s, { filename: 'background.js' });
   s.fetch = (url) => { fetched.push(url); return Promise.resolve({ status: 200, ok: true, text: () => Promise.resolve(url) }); };
   // Send a command the way a panel does and wait for the (possibly async) reply.
-  const ask = (message) => new Promise((resolve) => {
-    const async = handler(message, {}, resolve);
+  const ask = (message, sender = {}) => new Promise((resolve) => {
+    const async = handler(message, sender, resolve);
     if (async !== true) setImmediate(() => resolve(undefined));
   });
-  return { s, broadcasts, started, intervals, fetched, removed, localRemoved, session, panel, ask, getHandler: () => handler };
+  return {
+    s, broadcasts, started, intervals, fetched, removed, localRemoved, scriptCalls, session, panel, ask,
+    getHandler: () => handler,
+  };
 }
 
 /* --------------------------------------------------------------- parsers */
@@ -251,6 +258,27 @@ function loadParsers({ fastTimers = false } = {}) {
   env = loadBackground();
   eq('Yandex / Opera (no side panel API): popup kept, nothing changed', env.panel, { behavior: [], popups: [], onStartup: [] });
 
+  section('background: Chromium same-origin page fetch bridge');
+  const pageReply = { ok: true, status: 200, body: '{"assets":[]}' };
+  env = loadBackground({ scriptResult: pageReply });
+  eq('page fetch returns MAIN-world result to content script',
+    await env.ask({ command: 'page-fetch', url: 'https://www.artstation.com/projects/ABC.json' }, { tab: { id: 42 } }),
+    pageReply);
+  eq('page fetch executes in sender tab MAIN world with requested URL',
+    [env.scriptCalls[0].target, env.scriptCalls[0].world, env.scriptCalls[0].args],
+    [{ tabId: 42 }, 'MAIN', ['https://www.artstation.com/projects/ABC.json']]);
+  eq('page fetch without sender tab is rejected',
+    await env.ask({ command: 'page-fetch', url: 'https://www.artstation.com/projects/ABC.json' }),
+    { error: 'Page fetch requires a sender tab and URL' });
+  const stateReply = { '@@entities': { deviation: {} } };
+  env = loadBackground({ scriptResult: stateReply });
+  eq('page state returns whitelisted MAIN-world state',
+    await env.ask({ command: 'page-state' }, { tab: { id: 7 } }), { state: stateReply });
+  eq('page state executes in sender tab MAIN world',
+    [env.scriptCalls[0].target, env.scriptCalls[0].world], [{ tabId: 7 }, 'MAIN']);
+  eq('page state without sender tab is rejected', await env.ask({ command: 'page-state' }),
+    { error: 'Page state requires a sender tab' });
+
   section('background: date cutoff early stop');
   const day = (n) => `2026-08-${String(n).padStart(2, '0')}`;
   const dates = Array.from({ length: 30 }, (_, i) => day(30 - i));
@@ -300,6 +328,45 @@ function loadParsers({ fastTimers = false } = {}) {
     P.expectedIndexTotal(mkDoc(galleryState), 'https://www.deviantart.com/a/gallery/all?q=x'), null);
   eq('a search reports its term',
     P.indexSearchTerm(mkDoc(galleryState), 'https://www.deviantart.com/a/gallery?q=steampunk+truck'), 'steampunk truck');
+
+  const daHref = 'https://www.deviantart.com/artist/art/Work-123';
+  const daFull = 'https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/abc/work.jpg';
+  const daState = { '@@entities': {
+    deviationExtended: { '123': { additionalMedia: [] } },
+    deviation: { '123': { title: 'Work', author: 'u1', url: daHref,
+      media: { baseUri: daFull, prettyName: 'work', types: [{ t: 'fullview', c: '', r: 0 }], token: [] } } },
+    user: { u1: { username: 'artist' } },
+  } };
+  parsers.__BI_PAGE_STATE__ = async () => daState;
+  const noEmbeddedStateDoc = { documentElement: { outerHTML: '' }, images: [], querySelector: () => null };
+  eq('Opera MAIN-world state bridge returns real DeviantArt media',
+    (await P.extractImageUrls(noEmbeddedStateDoc, daHref)).map((i) => i.imageUrl), [daFull]);
+
+  parsers.__BI_PAGE_STATE__ = async () => null;
+  const daPlaceholder = { src: 'https://st.deviantart.net/default1200x630.png', clientWidth: 1200, clientHeight: 630 };
+  const daSmall = { src: 'https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/abc/small.jpg', clientWidth: 200, clientHeight: 100 };
+  const daMain = { src: daFull, clientWidth: 900, clientHeight: 600, alt: 'Work' };
+  const renderedDaDoc = { documentElement: { outerHTML: '' }, images: [daPlaceholder, daSmall, daMain], querySelector: () => null };
+  eq('Opera missing state -> largest rendered wixmp artwork, placeholder rejected',
+    (await P.extractImageUrls(renderedDaDoc, daHref)).map((i) => i.imageUrl), [daFull]);
+  eq('DeviantArt disables content.js generic Open Graph fallback', P.disableGenericFallback, true);
+
+  // In-page navigation: the tab first loaded deviation 999, then moved to 123.
+  const daStale = JSON.parse(JSON.stringify(daState));
+  daStale['@@entities'].deviationExtended = { '999': { additionalMedia: [] } };
+  daStale['@@entities'].deviation = { '999': { ...daState['@@entities'].deviation['123'],
+    media: { ...daState['@@entities'].deviation['123'].media, baseUri: 'https://images-wixmp-x.wixmp.com/f/old/old.jpg' } } };
+  const freshHtml = mkDoc(daState).documentElement.outerHTML;
+  const fetched123 = [];
+  const freshFetch = (url) => { fetched123.push(url); return Promise.resolve({ ok: true, text: () => Promise.resolve(freshHtml) }); };
+  eq('stale state after in-page navigation -> current page fetched, never the old deviation',
+    [(await P.extractImageUrls(mkDoc(daStale), daHref, { fetch: freshFetch })).map((i) => i.imageUrl), fetched123],
+    [[daFull], [daHref]]);
+  eq('stale state and page fetch fails -> rendered artwork, not the old deviation',
+    (await P.extractImageUrls({ ...mkDoc(daStale), images: [daPlaceholder, daMain] }, daHref,
+      { fetch: () => Promise.resolve({ ok: false, status: 500 }) })).map((i) => i.imageUrl), [daFull]);
+  eq('fetched deviation pages still parse by their own id',
+    P.parseDeviationHtml(freshHtml, daHref).images.map((i) => i.imageUrl), [daFull]);
 
   const pinterest = loadParsers().GALLERY_PARSERS['pinterest.com'];
   eq('pinterest pin is a main view', pinterest.isMainImageView('es.pinterest.com', '/pin/123/'), true);
@@ -492,7 +559,17 @@ function loadParsers({ fastTimers = false } = {}) {
     return Promise.resolve({ ok: true, status: 200,
       json: () => Promise.resolve(body), text: () => Promise.resolve(body) });
   };
-  const asDoc = (og) => ({ querySelector: (sel) => (sel.includes('og:image') && og ? { getAttribute: () => og } : null) });
+  const asDoc = (og, assets = []) => ({
+    querySelector: (sel) => (sel.includes('og:image') && og ? { getAttribute: () => og } : null),
+    querySelectorAll: (sel) => (sel === 'project-asset' ? assets : []),
+  });
+  const renderedAsset = (images = [], videos = []) => ({
+    querySelectorAll: (sel) => {
+      if (sel === 'img') return images.map((url) => ({ currentSrc: url, src: url, alt: '' }));
+      if (sel === 'video source[src], video[src]') return videos.map((url) => ({ src: url, title: '' }));
+      return [];
+    },
+  });
 
   let asParsers = loadParsers({ fastTimers: true });
   const artstation = asParsers.GALLERY_PARSERS['artstation.com'];
@@ -512,9 +589,26 @@ function loadParsers({ fastTimers = false } = {}) {
   eq('clip gets a unique filename (artist_asset_name)', multiItems[1].filename, 'someartist_3_clip.mp4');
   eq('artwork carries its published date', multiItems[0].pageDate, '2024-10-08');
 
-  eq('JSON blocked -> og:image fallback',
-    (await artstation.extractImageUrls(asDoc(`${CDN}/og.jpg`), `${AS}/artwork/GONE`, { fetch: asFetch({}) }))
-      .map((i) => i.imageUrl), [`${CDN}/og.jpg`]);
+  const genericShare = 'https://www.artstation.com/assets/share-explore.jpg';
+  const rendered1 = `${CDN}/images/images/000/000/101/large/someartist-one.jpg?1`;
+  const rendered2 = `${CDN}/images/images/000/000/102/medium/someartist-two.jpg?2`;
+  const renderedVideo = 'https://cdn.artstation.com/p/video_sources/002/000/999/clip.mp4';
+  eq('JSON blocked in Opera -> rendered project assets, never generic share image',
+    (await artstation.extractImageUrls(
+      asDoc(genericShare, [renderedAsset([rendered1, rendered2], [renderedVideo])]),
+      `${AS}/artwork/GONE`, { fetch: asFetch({}) },
+    )).map((i) => [i.kind, i.imageUrl]), [
+      ['image', rendered1.replace('/large/', '/4k/')],
+      ['image', rendered2.replace('/medium/', '/4k/')],
+      ['video', renderedVideo],
+    ]);
+  eq('generic ArtStation og:image is rejected when no project asset rendered',
+    await artstation.extractImageUrls(asDoc(genericShare), `${AS}/artwork/GONE`, { fetch: asFetch({}) }), []);
+  const validOg = `${CDN}/images/images/000/000/103/large/someartist-three.jpg?v=3`;
+  eq('real artwork og:image remains a safe last resort',
+    (await artstation.extractImageUrls(asDoc(validOg), `${AS}/artwork/GONE`, { fetch: asFetch({}) }))
+      .map((i) => i.imageUrl), [validOg.replace('/large/', '/4k/')]);
+  eq('ArtStation disables content.js generic og/image fallbacks', artstation.disableGenericFallback, true);
 
   let calls = 0;
   const flaky = { [`${AS}/projects/SINGLE.json`]: () => (++calls === 1 ? 429 : asProject('SINGLE', '2025-01-01', [asImage(9)])) };

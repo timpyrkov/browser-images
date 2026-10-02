@@ -15,6 +15,31 @@ function findParser(hostname) {
   return key ? registry[key] : null;
 }
 
+/*
+ * Chromium content-script fetches do not inherit the page's same-origin
+ * context. ArtStation's Cloudflare therefore rejects /projects/*.json in
+ * Opera even while the page itself is open. The background runs this request
+ * in the tab's MAIN world after verifying it is same-origin. Firefox's
+ * content.fetch path remains preferred and does not use this bridge.
+ */
+self.__BI_PAGE_FETCH__ = async function pageContextFetch(url) {
+  const reply = await chrome.runtime.sendMessage({ command: 'page-fetch', url });
+  if (!reply || reply.error) throw new Error(reply?.error || 'Page fetch failed');
+  return {
+    ok: reply.ok,
+    status: reply.status,
+    json: async () => JSON.parse(reply.body),
+    text: async () => reply.body,
+  };
+};
+
+// Read DeviantArt's in-page state from Chromium's MAIN world. Injecting an
+// inline <script> is blocked by DeviantArt's CSP in Opera.
+self.__BI_PAGE_STATE__ = async function pageContextState() {
+  const reply = await chrome.runtime.sendMessage({ command: 'page-state' });
+  return reply && !reply.error ? reply.state : null;
+};
+
 function resolveImageUrl(rawUrl) {
   if (!rawUrl) return null;
   if (typeof rawUrl !== 'string') return null;
@@ -77,6 +102,7 @@ async function getMainImageUrls(options = {}) {
   }
 
   if (urls.length) return urls;
+  if (parser?.disableGenericFallback) return [];
 
   // 2. Open Graph fallback
   const ogImage = resolveImageUrl(document.querySelector("meta[property='og:image']")?.content);

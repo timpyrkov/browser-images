@@ -946,6 +946,53 @@ async function closeDownloadedTabs() {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Chromium isolates content scripts from page globals, and DeviantArt's CSP
+  // blocks the old inline-script bridge in Opera. Read only the one whitelisted
+  // page global from the sender tab's MAIN world.
+  if (message.command === 'page-state') {
+    if (!sender.tab?.id) {
+      sendResponse({ error: 'Page state requires a sender tab' });
+      return false;
+    }
+    chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id },
+      world: 'MAIN',
+      func: () => window.__INITIAL_STATE__ || null,
+    }).then((results) => sendResponse({ state: results?.[0]?.result || null }))
+      .catch((error) => sendResponse({ error: error.message }));
+    return true;
+  }
+
+  // Chromium content scripts cannot make ArtStation's same-origin JSON request
+  // with the page's Cloudflare session. Run it in the sender tab's MAIN world.
+  // The in-page function accepts only the current origin, so this cannot be
+  // used as a general cross-origin fetch proxy.
+  if (message.command === 'page-fetch') {
+    if (!sender.tab?.id || typeof message.url !== 'string') {
+      sendResponse({ error: 'Page fetch requires a sender tab and URL' });
+      return false;
+    }
+    chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id },
+      world: 'MAIN',
+      func: async (rawUrl) => {
+        try {
+          const url = new URL(rawUrl, location.href);
+          if (!['http:', 'https:'].includes(url.protocol) || url.origin !== location.origin) {
+            return { error: 'Cross-origin page fetch rejected' };
+          }
+          const response = await fetch(url.href, { credentials: 'include' });
+          return { ok: response.ok, status: response.status, body: await response.text() };
+        } catch (error) {
+          return { error: error.message };
+        }
+      },
+      args: [message.url],
+    }).then((results) => sendResponse(results?.[0]?.result || { error: 'No page-fetch result' }))
+      .catch((error) => sendResponse({ error: error.message }));
+    return true;
+  }
+
   // A panel opening (or reopening) asks for the current run so it can redraw it.
   if (message.command === 'get-run-state') {
     runLogLoaded.then(() => sendResponse({

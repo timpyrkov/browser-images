@@ -55,6 +55,9 @@
     if (typeof content !== 'undefined' && content && typeof content.fetch === 'function') {
       return content.fetch.bind(content);
     }
+    if (global && typeof global.__BI_PAGE_FETCH__ === 'function') {
+      return global.__BI_PAGE_FETCH__;
+    }
     return fetch.bind(global);
   }
 
@@ -74,7 +77,46 @@
   const getText = (url, options) => getWithBackoff(url, (r) => r.text(), options);
 
   function fullSizeImageUrl(url) {
-    return String(url || '').replace('/large/', '/4k/');
+    return String(url || '').replace(/\/(?:small|medium|large)\//, '/4k/');
+  }
+
+  function isArtworkImageUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return /(^|\.)artstation\.com$/i.test(parsed.hostname)
+        && parsed.pathname.includes('/p/assets/images/images/');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Last-resort extraction from the live project DOM. ArtStation renders each
+   * project item inside <project-asset>; keeping that scope avoids profile
+   * avatars, ads and related-project thumbnails. Generic Open Graph assets
+   * such as share-explore.jpg never match the artwork path above.
+   */
+  function renderedProjectMedia(doc) {
+    if (!doc || typeof doc.querySelectorAll !== 'function') return [];
+    const media = [];
+    const seen = new Set();
+    for (const asset of doc.querySelectorAll('project-asset')) {
+      for (const img of asset.querySelectorAll ? asset.querySelectorAll('img') : []) {
+        const raw = img.currentSrc || img.src || img.getAttribute?.('src');
+        if (!isArtworkImageUrl(raw)) continue;
+        const url = fullSizeImageUrl(raw);
+        if (seen.has(url)) continue;
+        seen.add(url);
+        media.push({ imageUrl: url, kind: 'image', title: img.alt || '' });
+      }
+      for (const source of asset.querySelectorAll ? asset.querySelectorAll('video source[src], video[src]') : []) {
+        const url = source.currentSrc || source.src || source.getAttribute?.('src');
+        if (!url || !/\.mp4(?:[?#]|$)/i.test(url) || seen.has(url)) continue;
+        seen.add(url);
+        media.push({ imageUrl: url, kind: 'video', title: source.title || '' });
+      }
+    }
+    return media;
   }
 
   function embedUrlFromPlayer(playerHtml) {
@@ -141,6 +183,9 @@
       // Same pacing as Pinterest: one file at a time, backing off when the
       // CDN pushes back.
       downloadPolicy: { awaitCompletion: true, minDelaySeconds: 1 },
+      // Its og:image can be a generic share-explore.jpg; never let content.js
+      // re-apply that generic fallback after this parser rejects it.
+      disableGenericFallback: true,
       isMainImageView(hostname, pathname) {
         return isArtStationHost(hostname) && /\/artwork\/[A-Za-z0-9]+/.test(pathname || '');
       },
@@ -161,11 +206,15 @@
           const pageDate = (project.published_at || '').slice(0, 10) || null;
           if (media.length) return media.map((item) => ({ ...item, pageDate }));
         } catch (error) {
-          console.warn('[ArtStation] Project JSON unavailable, falling back to og:image:', error.message);
+          console.warn('[ArtStation] Project JSON unavailable; using rendered project assets:', error.message);
         }
+        const rendered = renderedProjectMedia(doc);
+        if (rendered.length) return rendered;
+        // Some server-rendered pages expose the real artwork only as og:image.
+        // Accept it only when it has ArtStation's actual artwork-asset path.
         const og = doc.querySelector("meta[property='og:image']");
         const ogUrl = helpers.resolveImageUrl ? helpers.resolveImageUrl(og && og.getAttribute('content')) : null;
-        return ogUrl ? [{ imageUrl: ogUrl, kind: 'image' }] : [];
+        return ogUrl && isArtworkImageUrl(ogUrl) ? [{ imageUrl: fullSizeImageUrl(ogUrl), kind: 'image' }] : [];
       },
 
       /**
@@ -228,5 +277,7 @@
   if (global && typeof global.registerGallery === 'function') {
     global.registerGallery(createArtStationParser());
   }
-  global.ARTSTATION_INTERNALS = { projectMedia, bestClipSource, fullSizeImageUrl, profileNameFromPath };
+  global.ARTSTATION_INTERNALS = {
+    projectMedia, bestClipSource, fullSizeImageUrl, profileNameFromPath, isArtworkImageUrl, renderedProjectMedia,
+  };
 })(typeof self !== 'undefined' ? self : this);

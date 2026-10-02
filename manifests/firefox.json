@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Browser Images",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Image downloader from open browser tabs.",
   "browser_specific_settings": {
     "gecko": {

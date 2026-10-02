@@ -56,6 +56,11 @@
   }
 
   function getDeviantArtStateFromWindow(doc) {
+    // Chromium/Opera: content.js asks the background to read this one global
+    // from the page's MAIN world. Firefox keeps the proven inline bridge below.
+    if (global && typeof global.__BI_PAGE_STATE__ === 'function') {
+      return global.__BI_PAGE_STATE__();
+    }
     return new Promise((resolve) => {
       let resolved = false;
       function done(state) {
@@ -186,12 +191,19 @@
   // key (everything else in `deviation` is related art). If several are
   // present (e.g. SPA navigation), pick the one matching the numeric id at
   // the end of the page URL (.../art/Title-1356232657).
+  function deviationIdFromUrl(href) {
+    const match = href && String(href).match(/-(\d+)(?:[/?#]|$)/);
+    return match ? match[1] : null;
+  }
+
+  // After in-page (SPA) navigation the embedded state still describes the
+  // first deviation opened in the tab, so a single key that differs from the
+  // URL's id is stale, not "the page's own deviation".
   function pickDeviationId(entities, href) {
     const ids = Object.keys(entities.deviationExtended);
-    if (ids.length === 1) return ids[0];
-    const match = href && String(href).match(/-(\d+)(?:[/?#]|$)/);
-    if (match && ids.includes(match[1])) return match[1];
-    return null;
+    const urlId = deviationIdFromUrl(href);
+    if (urlId) return ids.includes(urlId) ? urlId : null;
+    return ids.length === 1 ? ids[0] : null;
   }
 
   /**
@@ -610,10 +622,60 @@
   /* 4. Parser object                                                   */
   /* ------------------------------------------------------------------ */
 
+  function isRenderedDeviationUrl(url) {
+    try {
+      const parsed = new URL(url);
+      // Full DeviantArt artwork files use the images-wixmp host and /f/ path.
+      // This excludes st.deviantart.net/default1200x630.png, avatars, logos,
+      // ads and gallery thumbnails.
+      return /(^|\.)wixmp\.com$/i.test(parsed.hostname) && parsed.pathname.startsWith('/f/');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Fetch and parse the deviation page at `href`. Same-origin; on Chromium it
+   * goes through the page-context bridge (content.js) so it carries the page's
+   * own session, elsewhere a plain credentialed fetch.
+   */
+  async function fetchCurrentDeviation(href, options = {}) {
+    try {
+      const doFetch = options.fetch
+        || (global && typeof global.__BI_PAGE_FETCH__ === 'function' ? global.__BI_PAGE_FETCH__ : null)
+        || ((url) => fetch(url, { credentials: 'include' }));
+      const response = await doFetch(href);
+      if (!response.ok) return null;
+      return getDeviantArtImages(await response.text(), href, options);
+    } catch (error) {
+      console.warn('[DeviantArt] Could not read the current deviation page:', error.message);
+      return null;
+    }
+  }
+
+  /** Largest rendered full artwork as a last resort when page state is absent. */
+  function renderedDeviationMedia(doc) {
+    if (!doc) return [];
+    const images = Array.from(doc.images || [])
+      .map((img) => ({
+        img,
+        url: img.currentSrc || img.src || img.getAttribute?.('src'),
+        area: (img.clientWidth || img.width || 0) * (img.clientHeight || img.height || 0),
+      }))
+      .filter((entry) => isRenderedDeviationUrl(entry.url))
+      .sort((a, b) => b.area - a.area);
+    if (!images.length) return [];
+    const url = helpers.resolveImageUrl ? helpers.resolveImageUrl(images[0].url) : images[0].url;
+    return url ? [{ imageUrl: url, title: images[0].img.alt || '' }] : [];
+  }
+
   function createDeviantArtParser() {
     return {
       domain: 'deviantart.com',
       label: 'DeviantArt',
+      // Its og:image can be default1200x630.png; after this parser rejects it,
+      // content.js must not re-apply the generic Open Graph fallback.
+      disableGenericFallback: true,
       isMainImageView(hostname, pathname) {
         return /^\/[^/]+\/art\/[^/]+$/i.test(pathname);
       },
@@ -661,14 +723,14 @@
         if (!state) {
           state = await getDeviantArtStateFromWindow(doc);
         }
-        if (!state) {
-          const el = doc.querySelector("img[data-hook='deviation_image']");
-          const raw = el ? (el.currentSrc || el.src) : null;
-          const resolved = helpers.resolveImageUrl ? helpers.resolveImageUrl(raw) : null;
-          return resolved ? [{ imageUrl: resolved }] : [];
+        let result = state ? getDeviantArtImages(state, href, options) : null;
+        if (!result) {
+          // No state, or state for another deviation (in-page navigation):
+          // read the current deviation's own page instead.
+          result = await fetchCurrentDeviation(href, options);
         }
-        const result = getDeviantArtImages(state, href, options);
-        return result ? result.images : [];
+        if (result) return result.images;
+        return renderedDeviationMedia(doc);
       },
     };
   }
