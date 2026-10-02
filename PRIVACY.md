@@ -75,8 +75,13 @@ All requests go directly from your browser to the gallery you are downloading fr
 ## Data the extension does **not** collect
 
 - No analytics, telemetry, crash reporting, or advertising identifiers
-- No browsing history, bookmarks, passwords, or cookies are read or sent anywhere
+- The extension does not access the browser's history database; it processes only the addresses and titles of currently open tabs after the user presses Download
+- No bookmarks, passwords, or cookie values are read or sent to the developer
 - No data is sold, shared, or stored by the extension author
+
+## Chrome Web Store Limited Use
+
+The extension uses current-tab information and website content only to provide its single user-facing purpose: finding and downloading the gallery media the user explicitly requests. It does not use or transfer this information for advertising, analytics, creditworthiness, lending, or any purpose unrelated to that feature. Any transfer to a supported gallery's own servers is limited to the requests necessary to retrieve the selected pages and media files. The extension's use of information complies with the Chrome Web Store Limited Use requirements.
 
 ## Permissions explained
 
