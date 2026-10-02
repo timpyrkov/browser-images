@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "Chiudi schede scaricate",
   closeDownloadedTabsDone: "Schede scaricate chiuse.",
   closeDownloadedTabsError: "Impossibile chiudere alcune schede.",
+  openSidebarLabel: "Apri nel pannello laterale",
   resetLogBtn: "Svuota elenco",
   startedLabel: "Inizio",
   etaLabel: "ETA",

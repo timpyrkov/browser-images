@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "Cerrar pestañas descargadas",
   closeDownloadedTabsDone: "Pestañas descargadas cerradas.",
   closeDownloadedTabsError: "No se pudieron cerrar algunas pestañas.",
+  openSidebarLabel: "Abrir en el panel lateral",
   resetLogBtn: "Vaciar lista",
   startedLabel: "Inicio",
   etaLabel: "ETA",

@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "Close downloaded tabs",
   closeDownloadedTabsDone: "Downloaded tabs closed.",
   closeDownloadedTabsError: "Could not close some tabs.",
+  openSidebarLabel: "Open in side panel",
   resetLogBtn: "Clear list",
   startedLabel: "Started",
   etaLabel: "ETA",

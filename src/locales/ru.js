@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "Закрыть загруженные вкладки",
   closeDownloadedTabsDone: "Загруженные вкладки закрыты.",
   closeDownloadedTabsError: "Не удалось закрыть некоторые вкладки.",
+  openSidebarLabel: "Открыть в боковой панели",
   resetLogBtn: "Очистить список",
   startedLabel: "Начало",
   etaLabel: "Осталось до",

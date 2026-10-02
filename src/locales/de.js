@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "Geladene Tabs schließen",
   closeDownloadedTabsDone: "Geladene Tabs geschlossen.",
   closeDownloadedTabsError: "Einige Tabs konnten nicht geschlossen werden.",
+  openSidebarLabel: "In der Seitenleiste öffnen",
   resetLogBtn: "Liste leeren",
   startedLabel: "Start",
   etaLabel: "ETA",

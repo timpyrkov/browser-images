@@ -23,8 +23,14 @@ function loadNaming() {
 /* ------------------------------------------------------------ background */
 // `interrupts` maps a URL to the reasons its next downloads are interrupted
 // with, e.g. { 'https://x/a.jpg': ['SERVER_FORBIDDEN'] }; `'*'` applies to all.
-function loadBackground({ history = [], failUrls = [], interrupts = {} } = {}) {
-  const broadcasts = [], started = [], intervals = [], fetched = [];
+// `session` is the storage.session backing object; pass the same one to a
+// second loadBackground() to simulate the browser unloading and restarting
+// the background. `openTabs` are the tab ids tabs.query({}) reports.
+// `sidePanel`: 'ok' mimics Chrome, 'fails' a side panel API that rejects,
+// absent mimics Yandex / Opera (no chrome.sidePanel).
+function loadBackground({ history = [], failUrls = [], interrupts = {}, session = {}, openTabs = [], sidePanel } = {}) {
+  const broadcasts = [], started = [], intervals = [], fetched = [], removed = [], localRemoved = [];
+  const panel = { behavior: [], popups: [], onStartup: [] };
   const finalState = {};
   let handler = null;
   const s = { console: { log(){}, warn(){}, error(){} },
@@ -50,13 +56,33 @@ function loadBackground({ history = [], failUrls = [], interrupts = {} } = {}) {
           finalState[started.length] = reason ? { state: 'interrupted', error: reason } : { state: 'complete' };
           return Promise.resolve(started.length);
         } },
-      storage: { local: { set(){}, get: (k, cb) => cb && cb({}) } },
-      tabs: { query: (q, cb) => cb && cb([]), sendMessage: () => Promise.resolve() },
+      storage: { local: { set(){}, get: (k, cb) => cb && cb({}), remove: (keys) => { localRemoved.push(...keys); return Promise.resolve(); } },
+        session: {
+          get: (key) => Promise.resolve(key in session ? { [key]: JSON.parse(JSON.stringify(session[key])) } : {}),
+          set: (obj) => { for (const [k, v] of Object.entries(obj)) session[k] = JSON.parse(JSON.stringify(v)); return Promise.resolve(); },
+          remove: (key) => { delete session[key]; return Promise.resolve(); },
+        } },
+      tabs: { query: (q, cb) => (cb ? cb([]) : Promise.resolve(openTabs.map((id) => ({ id })))),
+        remove: (ids) => { removed.push(...ids); return Promise.resolve(); },
+        sendMessage: () => Promise.resolve() },
       scripting: { executeScript: () => Promise.resolve() } } };
+  if (sidePanel) {
+    s.chrome.sidePanel = {
+      open: () => Promise.resolve(),
+      setPanelBehavior: (b) => { panel.behavior.push(b); return sidePanel === 'ok' ? Promise.resolve() : Promise.reject(new Error('no side panel')); },
+    };
+    s.chrome.action = { setPopup: (p) => { panel.popups.push(p); return Promise.resolve(); } };
+    s.chrome.runtime.onStartup = { addListener: (f) => panel.onStartup.push(f) };
+  }
   s.self = s; vm.createContext(s);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/background.js'), 'utf8'), s, { filename: 'background.js' });
   s.fetch = (url) => { fetched.push(url); return Promise.resolve({ status: 200, ok: true, text: () => Promise.resolve(url) }); };
-  return { s, broadcasts, started, intervals, fetched, getHandler: () => handler };
+  // Send a command the way a panel does and wait for the (possibly async) reply.
+  const ask = (message) => new Promise((resolve) => {
+    const async = handler(message, {}, resolve);
+    if (async !== true) setImmediate(() => resolve(undefined));
+  });
+  return { s, broadcasts, started, intervals, fetched, removed, localRemoved, session, panel, ask, getHandler: () => handler };
 }
 
 /* --------------------------------------------------------------- parsers */
@@ -157,6 +183,73 @@ function loadParsers({ fastTimers = false } = {}) {
   eq('keepalive every 20s', env.intervals[0].ms, 20000);
   env.s.stopKeepAlive();
   eq('keepalive cleared', env.intervals.length, 0);
+
+  section('background: run log survives the panel closing');
+  const row = (id, status, extra = {}) => ({ id, url: `https://x/${id}`, title: `T${id}`, status, ...extra });
+  const session = {};
+  env = loadBackground({ session });
+  await env.ask({ command: 'get-run-state' });            // let the session restore settle
+  env.s.setRunning(true);
+  env.s.broadcast('download-progress', row(1, 'downloading', { count: 1, total: 3 }));
+  env.s.broadcast('download-progress', row(1, 'downloaded', { count: 3, total: 3 }));
+  env.s.broadcast('download-progress', row(2, 'scanning'));
+  let snap = await env.ask({ command: 'get-run-state' });
+  eq('reopened mid-run: rows and running flag come back',
+    [snap.running, snap.rows.map((r) => [r.id, r.status, r.count])], [true, [[1, 'downloaded', 3], [2, 'scanning', undefined]]]);
+  eq('the same tab updates its row instead of adding one', snap.rows.length, 2);
+
+  eq('second Download while running is refused', await env.ask({ command: 'scan-all-tabs' }), { status: 'busy' });
+  eq('...and the running run keeps its rows', (await env.ask({ command: 'get-run-state' })).rows.length, 2);
+
+  // The browser unloads the background mid-run and starts a fresh one.
+  let env2 = loadBackground({ session });
+  snap = await env2.ask({ command: 'get-run-state' });
+  eq('after a background restart: rows kept, run reported finished', [snap.running, snap.rows.length], [false, 2]);
+  eq('...so Download works again', await env2.ask({ command: 'scan-all-tabs' }), { status: 'started' });
+
+  env2 = loadBackground({ session: {} });
+  eq('fresh browser session: empty log', await env2.ask({ command: 'get-run-state' }), { rows: [], running: false, startedAt: null });
+
+  const s2 = {};
+  env = loadBackground({ session: s2, openTabs: [1, 3] });
+  await env.ask({ command: 'get-run-state' });
+  env.s.setRunning(true);
+  env.s.broadcast('download-progress', row(1, 'downloaded'));
+  env.s.broadcast('download-progress', row(2, 'downloaded'));    // tab 2 was closed by the user meanwhile
+  env.s.broadcast('download-progress', row(3, 'error'));
+  env.s.setRunning(false);
+  eq('Close downloaded tabs: closes only open, downloaded tabs', [await env.ask({ command: 'close-downloaded-tabs' }), env.removed],
+    [{ status: 'closed', ids: [1, 2] }, [1]]);
+  eq('...and the closed marks are stored', s2.runLog.rows.map((r) => !!r.closed), [true, true, false]);
+  eq('...so a second press closes nothing', (await env.ask({ command: 'close-downloaded-tabs' })).ids, []);
+  eq('Clear list erases the stored copy entirely', [await env.ask({ command: 'reset-log' }), 'runLog' in s2], [{ status: 'cleared' }, false]);
+  eq('...and nothing is left for a reopened panel', await env.ask({ command: 'get-run-state' }), { rows: [], running: false, startedAt: null });
+  eq('...even after a background restart', await loadBackground({ session: s2 }).ask({ command: 'get-run-state' }),
+    { rows: [], running: false, startedAt: null });
+
+  env.s.setRunning(true);
+  env.s.broadcast('download-progress', row(5, 'downloading'));
+  eq('Clear list is refused mid-run', [await env.ask({ command: 'reset-log' }), s2.runLog.rows.length], [{ status: 'busy' }, 1]);
+  env.s.setRunning(false);
+
+  eq('old unused run timestamps are removed from permanent storage',
+    env.localRemoved, ['downloadInProgress', 'lastDownloadComplete']);
+
+  env = loadBackground();
+  await env.ask({ command: 'scan-all-tabs' });
+  eq('a finished run releases the lock', (await env.ask({ command: 'get-run-state' })).running, false);
+
+  section('background: toolbar icon - side panel primary, popup fallback');
+  env = loadBackground({ sidePanel: 'ok' });
+  await new Promise(setImmediate);
+  eq('Chrome: icon opens the side panel, manifest popup removed',
+    [env.panel.behavior, env.panel.popups], [[{ openPanelOnActionClick: true }], [{ popup: '' }]]);
+  eq('Chrome: re-applied when the browser starts', env.panel.onStartup.length, 1);
+  env = loadBackground({ sidePanel: 'fails' });
+  await new Promise(setImmediate);
+  eq('side panel API rejects: popup kept', env.panel.popups, []);
+  env = loadBackground();
+  eq('Yandex / Opera (no side panel API): popup kept, nothing changed', env.panel, { behavior: [], popups: [], onStartup: [] });
 
   section('background: date cutoff early stop');
   const day = (n) => `2026-08-${String(n).padStart(2, '0')}`;

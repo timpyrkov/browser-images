@@ -78,8 +78,74 @@ function cancelRun() {
   }
 }
 
+/*
+ * Run log. The panel (sidebar, side panel or toolbar popup) can be closed and
+ * reopened at any time - a popup closes as soon as it loses focus - while the
+ * run carries on here. So the background owns the log rows and the running
+ * flag, and a panel asks for them when it opens. They are mirrored to
+ * storage.session because Chrome and Opera unload an idle background:
+ * session storage is held in memory only, survives that, and is cleared when
+ * the browser closes.
+ */
+const RUN_LOG_KEY = 'runLog';
+const RUN_LOG_SAVE_MS = 1000;
+const RUN_LOG_FINAL = new Set(['downloaded', 'skipped', 'error']);
+const runLog = { rows: [], running: false, startedAt: null };
+let runLogSaveTimer = null;
+
+function sessionStore() {
+  return (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session) || null;
+}
+
+// A freshly started background has no run in flight, so a stored running flag
+// belongs to a run the browser stopped by unloading us: keep its rows, but
+// report it as finished.
+const runLogLoaded = (async () => {
+  try {
+    const store = sessionStore();
+    const stored = store && (await store.get(RUN_LOG_KEY))[RUN_LOG_KEY];
+    if (stored && !runLog.running && !runLog.rows.length) {
+      runLog.rows = Array.isArray(stored.rows) ? stored.rows : [];
+      runLog.startedAt = stored.startedAt || null;
+    }
+  } catch (error) {
+    console.warn('[RunLog] Could not restore:', error.message);
+  }
+})();
+
+function saveRunLog(immediate = false) {
+  const store = sessionStore();
+  if (!store) return;
+  clearTimeout(runLogSaveTimer);
+  const write = () => {
+    runLogSaveTimer = null;
+    store.set({ [RUN_LOG_KEY]: runLog }).catch((error) => console.warn('[RunLog] Could not save:', error.message));
+  };
+  if (immediate) write();
+  else runLogSaveTimer = setTimeout(write, RUN_LOG_SAVE_MS);
+}
+
+/** Insert or update a row by tab id; a row's `closed` mark survives updates. */
+function recordRow(item) {
+  if (!item || item.id == null) return;
+  const row = runLog.rows.find((entry) => entry.id === item.id);
+  if (row) Object.assign(row, item);
+  else runLog.rows.push({ ...item });
+  saveRunLog(RUN_LOG_FINAL.has(item.status));
+}
+
+function setRunning(running) {
+  runLog.running = running;
+  if (running) {
+    runLog.rows = [];
+    runLog.startedAt = Date.now();
+  }
+  saveRunLog(true);
+}
+
 // Broadcast progress/state messages to any open sidebar views.
 function broadcast(type, item = {}) {
+  if (type === 'download-progress') recordRow(item);
   try {
     chrome.runtime.sendMessage({ type, item }).catch(() => {
       // No receiving sidebar open; ignore.
@@ -89,14 +155,11 @@ function broadcast(type, item = {}) {
   }
 }
 
-// Helper to set download status in storage
-function setDownloadStatus(inProgress, timestamp = null) {
-  const update = { downloadInProgress: inProgress };
-  if (!inProgress && timestamp) {
-    update.lastDownloadComplete = timestamp;
-  }
-  chrome.storage.local.set(update);
-}
+// Earlier versions wrote run timestamps to permanent storage that nothing read;
+// remove them from existing installs. Only settings belong in storage.local.
+try {
+  chrome.storage.local.remove(['downloadInProgress', 'lastDownloadComplete']);
+} catch (error) { /* storage unavailable; nothing to clean */ }
 
 function waitForDownloadComplete(downloadId, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
@@ -730,7 +793,6 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
 
 // Sequential download with delay
 async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, skipVideos) {
-  setDownloadStatus(true);
   console.log('[Download] Starting sequential download process.');
 
   runState.cancelled = false;
@@ -862,12 +924,62 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
   }
   stopWatchingDownloads();
   stopKeepAlive();
-  setDownloadStatus(false, Date.now());
+  setRunning(false);
   console.log(runState.cancelled ? '[Download] Stopped by user.' : '[Download] All downloads complete.');
   broadcast('download-complete');
 }
 
+/** Close the tabs whose downloads succeeded and mark their rows as closed. */
+async function closeDownloadedTabs() {
+  const ids = runLog.rows
+    .filter((row) => row.status === 'downloaded' && !row.closed && typeof row.id === 'number' && row.id > 0)
+    .map((row) => row.id);
+  if (ids.length) {
+    // A tab may already be gone; only report the ones that were still open.
+    const open = new Set((await chrome.tabs.query({})).map((tab) => tab.id));
+    const toClose = ids.filter((id) => open.has(id));
+    if (toClose.length) await chrome.tabs.remove(toClose);
+    runLog.rows.forEach((row) => { if (ids.includes(row.id)) row.closed = true; });
+    saveRunLog(true);
+  }
+  return ids;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // A panel opening (or reopening) asks for the current run so it can redraw it.
+  if (message.command === 'get-run-state') {
+    runLogLoaded.then(() => sendResponse({
+      rows: runLog.rows, running: runLog.running, startedAt: runLog.startedAt,
+    }));
+    return true;
+  }
+
+  // Clear list: erase every trace of past runs. Settings are separate keys in
+  // storage.local and are not touched. Refused mid-run, where the run's next
+  // update would only bring the rows back.
+  if (message.command === 'reset-log') {
+    if (runLog.running) {
+      sendResponse({ status: 'busy' });
+      return false;
+    }
+    runLog.rows = [];
+    runLog.startedAt = null;
+    clearTimeout(runLogSaveTimer);
+    runLogSaveTimer = null;
+    const store = sessionStore();
+    const done = () => sendResponse({ status: 'cleared' });
+    if (store) store.remove(RUN_LOG_KEY).then(done, done);
+    else done();
+    return true;
+  }
+
+  if (message.command === 'close-downloaded-tabs') {
+    closeDownloadedTabs()
+      .then((ids) => sendResponse({ status: 'closed', ids }))
+      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+    return true;
+  }
+
   if (message.command === 'stop-scan') {
     cancelRun();
     sendResponse({ status: 'stopping' });
@@ -888,6 +1000,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Command from the popup to start scanning
   if (message.command === 'scan-all-tabs') {
     console.log('[Download] Received scan-all-tabs command.');
+    // One run at a time: a reopened panel, or one in another window, must not
+    // start a second run over the same tabs and double the request rate.
+    if (runLog.running) {
+      sendResponse({ status: 'busy' });
+      return false;
+    }
+    // Claimed synchronously, before the settings read below, so a double click
+    // cannot slip a second run in between.
+    setRunning(true);
     // Answer straight away. Returning true without ever calling sendResponse
     // leaves the channel dangling, which Firefox reports as "Promised response
     // from onMessage listener went out of scope" once it is collected.
@@ -896,6 +1017,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.local.get(['folder', 'galleryPaths', 'rateLimit', 'gallery', 'maxDate', 'skipDownloaded', 'preferPreview', 'expandGalleries', 'galleryPaginate', 'batchSize', 'skipVideos'], (settings) => {
       if (chrome.runtime.lastError) {
         console.error('Error getting settings:', chrome.runtime.lastError);
+        setRunning(false);
+        broadcast('download-complete');
         return;
       }
       console.log('[Download] Loaded settings:', settings);
@@ -912,7 +1035,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const skipVideos = settings.skipVideos ?? DEFAULT_SETTINGS.skipVideos;
       chrome.tabs.query({ currentWindow: true }, (tabs) => {
         console.log(`[Download] Found ${tabs.length} tabs in the current window to scan.`);
-        downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, skipVideos);
+        downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, skipVideos)
+          // An unexpected throw must not leave the run claimed forever.
+          .catch((error) => {
+            console.error('[Download] Run failed:', error);
+            stopKeepAlive();
+            setRunning(false);
+            broadcast('download-complete');
+          });
       });
     });
     return false; // Already answered synchronously above.
@@ -920,11 +1050,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 });
 
-// Open the sidebar/side panel when the toolbar icon is clicked.
+/*
+ * Toolbar icon.
+ * Firefox: opens the sidebar.
+ * Chrome: the manifest declares a toolbar popup, because a declared popup
+ * always wins the icon click and is the only UI in browsers that install from
+ * the Chrome Web Store but have no side panel for extensions (Yandex). Where a
+ * side panel does exist, the popup is removed at runtime so the icon opens the
+ * side panel instead - side panel primary, popup only as the fallback.
+ * Opera: no chrome.sidePanel; the popup stays and the sidebar is opened from
+ * Opera's own sidebar icon.
+ */
+function preferSidePanel() {
+  const sidePanel = chrome.sidePanel;
+  if (typeof sidePanel.setPanelBehavior !== 'function' || typeof sidePanel.open !== 'function') return;
+  sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    // Only drop the popup once the side panel has really taken the click.
+    .then(() => chrome.action.setPopup({ popup: '' }))
+    .catch((error) => console.error('Side panel unavailable; keeping the toolbar popup:', error));
+}
+
 if (typeof browser !== 'undefined' && browser.sidebarAction) {
   browser.action.onClicked.addListener(() => browser.sidebarAction.open());
 } else if (typeof chrome !== 'undefined' && chrome.sidePanel) {
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.error('Failed to set side panel behavior:', error));
+  preferSidePanel();
+  // Runtime action settings do not outlast the browser session, and an idle
+  // worker is not started by an icon click that opens a popup. onStartup wakes
+  // the worker when the browser starts, so the first click already opens the
+  // side panel.
+  chrome.runtime.onStartup.addListener(preferSidePanel);
 }

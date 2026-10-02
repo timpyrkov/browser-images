@@ -1,0 +1,25 @@
+/* Toolbar-popup build (Chrome / Opera; the only surface in browsers without
+   a sidebar for extensions, e.g. Yandex). Chrome caps action popups at about
+   800x600, so the page gets a fixed size inside that, and the parts that can
+   grow scroll instead of being cut off. */
+html,
+body {
+  width: 480px;
+  min-width: 480px;
+  height: 560px;
+  min-height: 560px;
+  overflow: hidden;
+}
+
+/* The sidebar fills the viewport with 100vh, which is circular in a popup
+   that sizes itself to its content. */
+.sidebar-page {
+  width: 100%;
+  height: 100%;
+}
+
+/* Settings open inside the toolbar; keep room for the results below them. */
+.gallery-settings-panel {
+  max-height: 280px;
+  overflow-y: auto;
+}

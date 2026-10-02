@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "ダウンロード済みタブを閉じる",
   closeDownloadedTabsDone: "ダウンロード済みタブを閉じました。",
   closeDownloadedTabsError: "一部のタブを閉じられませんでした。",
+  openSidebarLabel: "サイドパネルで開く",
   resetLogBtn: "リストを消去",
   startedLabel: "開始",
   etaLabel: "完了予定",

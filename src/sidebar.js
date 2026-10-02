@@ -33,6 +33,10 @@ const state = {
   filter: 'all',
   scanning: false,
   pickerView: new Date(),
+  // Live updates that arrive while the run snapshot is being fetched are held
+  // here and replayed in order on top of it, so none is lost or applied stale.
+  restored: false,
+  pending: [],
 };
 
 const els = {};
@@ -45,8 +49,19 @@ function setText(el, value) {
   if (el) el.textContent = value;
 }
 
-function setHtml(el, value) {
-  if (el) el.innerHTML = value;
+/**
+ * Text with <strong>…</strong> emphasis (the only markup the locales use),
+ * built from DOM nodes rather than parsed as HTML.
+ */
+function setRichText(el, value) {
+  if (!el) return;
+  el.replaceChildren(...String(value).split(/(<strong>.*?<\/strong>)/).filter(Boolean).map((part) => {
+    const bold = part.match(/^<strong>(.*)<\/strong>$/);
+    if (!bold) return document.createTextNode(part);
+    const strong = document.createElement('strong');
+    strong.textContent = bold[1];
+    return strong;
+  }));
 }
 
 async function loadSettings() {
@@ -125,7 +140,7 @@ function applyTranslations() {
   setText($('filterFailed'), t(lang, 'filterFailed'));
 
   if (!state.scanning) {
-    setHtml($('welcomeText'), state.log.length === 0 ? t(lang, 'logEmptyHint') : '');
+    setRichText($('welcomeText'), state.log.length === 0 ? t(lang, 'logEmptyHint') : '');
   }
 }
 
@@ -446,6 +461,8 @@ function setScanning(scanning) {
   // Stop is only meaningful mid-run; Download only outside one.
   $('downloadBtn').disabled = scanning;
   $('stopBtn').disabled = !scanning;
+  // Clearing mid-run would be undone by the run's next update.
+  $('resetLogBtn').disabled = scanning;
   if (scanning) {
     statusText.style.display = '';
     statusText.textContent = t(state.settings.uiLang, 'statusScanning');
@@ -478,39 +495,72 @@ function bindDownload() {
     renderLog();
     setScanning(true);
     try {
-      await brw.runtime.sendMessage({ command: 'scan-all-tabs' });
+      const reply = await brw.runtime.sendMessage({ command: 'scan-all-tabs' });
+      // A run is already going (started from another panel or window): show
+      // that one rather than an empty list.
+      if (reply?.status === 'busy') await restoreRunState();
     } catch (error) {
       console.error('Failed to start scan:', error);
     }
   });
 
   brw.runtime.onMessage.addListener((message) => {
-    // Any traffic from the background counts as proof of life.
-    if (message?.type) noteBackgroundAlive();
-    if (message?.type === 'download-heartbeat') return;
-    if (message?.type === 'download-complete') {
-      setScanning(false);
-      updateCounts();
-      renderLog();
+    if (!message?.type) return;
+    if (!state.restored) {
+      state.pending.push(message);
       return;
     }
-    if (message?.type === 'download-progress' && message.item) {
-      if (message.item.status === 'scanning' && message.item.count) {
-        const seen = message.item.total
-          ? `${message.item.count}/${message.item.total}`
-          : `${message.item.count}`;
-        $('statusText').textContent = `${t(state.settings.uiLang, 'statusScanning')} (${seen})`;
-      }
-      const existing = state.log.find((entry) => entry.id === message.item.id);
-      if (existing) {
-        Object.assign(existing, message.item);
-      } else {
-        state.log.push(message.item);
-      }
-      updateCounts();
-      renderLog();
-    }
+    handleBackgroundMessage(message);
   });
+}
+
+function handleBackgroundMessage(message) {
+  // Any traffic from the background counts as proof of life.
+  noteBackgroundAlive();
+  if (message.type === 'download-heartbeat') return;
+  if (message.type === 'download-complete') {
+    setScanning(false);
+    updateCounts();
+    renderLog();
+    return;
+  }
+  if (message.type === 'download-progress' && message.item) {
+    if (message.item.status === 'scanning' && message.item.count) {
+      const seen = message.item.total
+        ? `${message.item.count}/${message.item.total}`
+        : `${message.item.count}`;
+      $('statusText').textContent = `${t(state.settings.uiLang, 'statusScanning')} (${seen})`;
+    }
+    const existing = state.log.find((entry) => entry.id === message.item.id);
+    if (existing) {
+      Object.assign(existing, message.item);
+    } else {
+      state.log.push(message.item);
+    }
+    updateCounts();
+    renderLog();
+  }
+}
+
+/**
+ * Redraw the run the background is holding. The panel may have been closed
+ * (a popup closes as soon as it loses focus) while the run carried on.
+ */
+async function restoreRunState() {
+  state.restored = false;
+  try {
+    const snapshot = await brw.runtime.sendMessage({ command: 'get-run-state' });
+    if (snapshot) {
+      state.log = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+      setScanning(snapshot.running === true);
+    }
+  } catch (error) {
+    console.warn('Could not restore the current run:', error);
+  }
+  state.restored = true;
+  state.pending.splice(0).forEach(handleBackgroundMessage);
+  updateCounts();
+  renderLog();
 }
 
 /*
@@ -562,11 +612,26 @@ function updateCloseTabsButton() {
   if (btn) btn.disabled = !hasDownloaded;
 }
 
-function resetLog() {
+async function resetLog() {
+  if (state.scanning) return;
+  // The background's stored copy goes first, or reopening the panel would
+  // bring the list back. Settings are not touched.
+  try {
+    const reply = await brw.runtime.sendMessage({ command: 'reset-log' });
+    // A run started from another panel meanwhile: show it instead.
+    if (reply?.status === 'busy') {
+      await restoreRunState();
+      return;
+    }
+  } catch (error) {
+    console.warn('Could not clear the stored log:', error);
+  }
   state.log = [];
+  state.pending = [];
   updateCounts();
   renderLog();
   $('welcomeText').style.display = '';
+  $('statusText').textContent = '';
   $('statusText').style.display = 'none';
 }
 
@@ -575,17 +640,16 @@ function bindResetLog() {
 }
 
 async function closeDownloadedTabs() {
-  const ids = state.log
-    .filter((entry) => entry.status === 'downloaded' && !entry.closed && typeof entry.id === 'number' && entry.id > 0)
-    .map((entry) => entry.id);
-
-  if (!ids.length) {
-    updateCloseTabsButton();
-    return;
-  }
-
   try {
-    await brw.tabs.remove(ids);
+    // The background closes them and marks its rows, so the "closed" state
+    // survives the panel being closed and reopened.
+    const reply = await brw.runtime.sendMessage({ command: 'close-downloaded-tabs' });
+    if (reply?.status !== 'closed') throw new Error(reply?.message || 'no reply');
+    const ids = reply.ids || [];
+    if (!ids.length) {
+      updateCloseTabsButton();
+      return;
+    }
     state.log.forEach((entry) => {
       if (ids.includes(entry.id)) entry.closed = true;
     });
@@ -767,4 +831,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindResetLog();
   initDatePicker();
   applyLoadedSettings();
+  await restoreRunState();
 });

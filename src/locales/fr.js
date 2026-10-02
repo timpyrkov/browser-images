@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "Fermer les onglets téléchargés",
   closeDownloadedTabsDone: "Onglets téléchargés fermés.",
   closeDownloadedTabsError: "Impossible de fermer certains onglets.",
+  openSidebarLabel: "Ouvrir dans le panneau latéral",
   resetLogBtn: "Vider la liste",
   startedLabel: "Début",
   etaLabel: "ETA",

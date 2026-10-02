@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "关闭已下载标签页",
   closeDownloadedTabsDone: "已关闭下载完成的标签页。",
   closeDownloadedTabsError: "无法关闭部分标签页。",
+  openSidebarLabel: "在侧边栏中打开",
   resetLogBtn: "清空列表",
   startedLabel: "开始",
   etaLabel: "预计完成",

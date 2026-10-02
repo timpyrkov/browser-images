@@ -31,6 +31,7 @@ export default {
   closeDownloadedTabsBtn: "다운로드한 탭 닫기",
   closeDownloadedTabsDone: "다운로드한 탭을 닫았습니다.",
   closeDownloadedTabsError: "일부 탭을 닫을 수 없습니다.",
+  openSidebarLabel: "사이드 패널에서 열기",
   resetLogBtn: "목록 지우기",
   startedLabel: "시작",
   etaLabel: "예상 완료",
