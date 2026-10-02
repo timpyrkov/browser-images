@@ -2,7 +2,7 @@
 // Interface strings for Russian (русский). Keys must stay in sync with locales/en.js,
 // which t() falls back to for anything missing.
 export default {
-  appTitle: "Загрузчик изображений из вкладок галерей",
+  appTitle: "Browser Images",
   uiLangLabel: "Язык интерфейса",
   galleryLabel: "Галерея",
   gallerySettingsLabel: "Настройки галереи",

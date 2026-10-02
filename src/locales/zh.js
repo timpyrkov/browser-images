@@ -2,7 +2,7 @@
 // Interface strings for Chinese (中文). Keys must stay in sync with locales/en.js,
 // which t() falls back to for anything missing.
 export default {
-  appTitle: "图库标签页图片下载器",
+  appTitle: "Browser Images",
   uiLangLabel: "界面语言",
   galleryLabel: "图库",
   gallerySettingsLabel: "图库设置",

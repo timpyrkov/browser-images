@@ -3,7 +3,7 @@
   <span style="font-size:2.5em; vertical-align: middle;"><b>Browser Images</b></span>
 </p></h1>
 
-**Image Downloader for Gallery Tabs** — a Firefox and Chrome extension that downloads the
+**Browser Images** — a Firefox, Chrome and Opera extension that downloads the
 images and videos from the gallery tabs you have open, one click for the whole window.
 
 Open the artworks, pins or artist galleries you want in tabs, pick the gallery in the
@@ -79,9 +79,9 @@ npm run build:firefox    # -> dist/firefox/  (sidebar only)
 npm run build:chrome     # -> dist/chrome/   (side panel; toolbar popup as fallback)
 npm run build:opera      # -> dist/opera/    (sidebar + toolbar popup)
 npm test                 # regression tests
-npm run package:firefox  # -> image-downloader-gallery-tabs-firefox.zip (store upload)
-npm run package:chrome   # -> image-downloader-gallery-tabs-chrome.zip
-npm run package:opera    # -> image-downloader-gallery-tabs-opera.zip
+npm run package:firefox  # -> browser-images-firefox.zip (store upload)
+npm run package:chrome   # -> browser-images-chrome.zip
+npm run package:opera    # -> browser-images-opera.zip
 ```
 
 **Firefox:** open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…**

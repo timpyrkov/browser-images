@@ -1,10 +1,10 @@
-# Privacy Policy for Image Downloader for Gallery Tabs
+# Privacy Policy for Browser Images
 
 **Last updated:** 2026-10-02
 
 ## Summary
 
-Image Downloader for Gallery Tabs is a browser extension that downloads the images and videos from the gallery tabs you have open (ArtStation, DeviantArt, Pinterest). The extension does **not** collect, store, or transmit any personal information, browsing data, or user content to servers owned or operated by the developer. There are no such servers.
+Browser Images is a browser extension that downloads the images and videos from the gallery tabs you have open (ArtStation, DeviantArt, Pinterest). The extension does **not** collect, store, or transmit any personal information, browsing data, or user content to servers owned or operated by the developer. There are no such servers.
 
 Everything happens inside your browser: the extension reads the gallery pages you have open, asks those galleries' own servers for the artwork files, and saves them with the browser's built-in downloader to your `Downloads` folder.
 

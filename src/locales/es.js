@@ -2,7 +2,7 @@
 // Interface strings for Spanish (español). Keys must stay in sync with locales/en.js,
 // which t() falls back to for anything missing.
 export default {
-  appTitle: "Descargador de imágenes para pestañas de galerías",
+  appTitle: "Browser Images",
   uiLangLabel: "Idioma de la interfaz",
   galleryLabel: "Galería",
   gallerySettingsLabel: "Ajustes de la galería",

@@ -1,5 +1,5 @@
 {
-  "name": "image-downloader-gallery-tabs",
+  "name": "browser-images",
   "version": "1.0.1",
   "description": "Image downloader from open browser tabs.",
   "private": true,
@@ -10,9 +10,9 @@
     "build:chrome": "node build.cjs chrome",
     "build:opera": "node build.cjs opera",
     "build": "npm run lint && npm test && npm run build:firefox && npm run build:chrome && npm run build:opera",
-    "package:firefox": "npm run build:firefox && rm -f image-downloader-gallery-tabs-firefox.zip && cd dist/firefox && zip -qrX -FS ../../image-downloader-gallery-tabs-firefox.zip . -x '*.DS_Store'",
-    "package:chrome": "npm run build:chrome && rm -f image-downloader-gallery-tabs-chrome.zip && cd dist/chrome && zip -qrX -FS ../../image-downloader-gallery-tabs-chrome.zip . -x '*.DS_Store'",
-    "package:opera": "npm run build:opera && rm -f image-downloader-gallery-tabs-opera.zip && cd dist/opera && zip -qrX -FS ../../image-downloader-gallery-tabs-opera.zip . -x '*.DS_Store'",
+    "package:firefox": "npm run build:firefox && rm -f browser-images-firefox.zip && cd dist/firefox && zip -qrX -FS ../../browser-images-firefox.zip . -x '*.DS_Store'",
+    "package:chrome": "npm run build:chrome && rm -f browser-images-chrome.zip && cd dist/chrome && zip -qrX -FS ../../browser-images-chrome.zip . -x '*.DS_Store'",
+    "package:opera": "npm run build:opera && rm -f browser-images-opera.zip && cd dist/opera && zip -qrX -FS ../../browser-images-opera.zip . -x '*.DS_Store'",
     "clean": "rm -rf dist",
     "test": "node test/run.cjs"
   },

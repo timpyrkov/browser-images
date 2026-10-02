@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Image Downloader for Gallery Tabs",
+  "name": "Browser Images",
   "version": "1.0.1",
   "description": "Image downloader from open browser tabs.",
   "icons": {
@@ -27,11 +27,11 @@
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"
     },
-    "default_title": "Image Downloader for Gallery Tabs",
+    "default_title": "Browser Images",
     "default_popup": "popup.html"
   },
   "sidebar_action": {
-    "default_title": "Image Downloader for Gallery Tabs",
+    "default_title": "Browser Images",
     "default_panel": "sidebar.html",
     "default_icon": {
       "16": "icons/icon-16.png",

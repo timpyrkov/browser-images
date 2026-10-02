@@ -2,7 +2,7 @@
 // Interface strings for Japanese (日本語). Keys must stay in sync with locales/en.js,
 // which t() falls back to for anything missing.
 export default {
-  appTitle: "ギャラリータブ用画像ダウンローダー",
+  appTitle: "Browser Images",
   uiLangLabel: "インターフェース言語",
   galleryLabel: "ギャラリー",
   gallerySettingsLabel: "ギャラリー設定",

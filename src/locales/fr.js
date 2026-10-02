@@ -2,7 +2,7 @@
 // Interface strings for French (français). Keys must stay in sync with locales/en.js,
 // which t() falls back to for anything missing.
 export default {
-  appTitle: "Téléchargeur d'images pour onglets de galeries",
+  appTitle: "Browser Images",
   uiLangLabel: "Langue de l'interface",
   galleryLabel: "Galerie",
   gallerySettingsLabel: "Paramètres de la galerie",

@@ -2,7 +2,7 @@
 // Interface strings for Korean (한국어). Keys must stay in sync with locales/en.js,
 // which t() falls back to for anything missing.
 export default {
-  appTitle: "갤러리 탭 이미지 다운로더",
+  appTitle: "Browser Images",
   uiLangLabel: "인터페이스 언어",
   galleryLabel: "갤러리",
   gallerySettingsLabel: "갤러리 설정",

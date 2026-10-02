@@ -2,7 +2,7 @@
 // Interface strings for German (Deutsch). Keys must stay in sync with locales/en.js,
 // which t() falls back to for anything missing.
 export default {
-  appTitle: "Bild-Downloader für Galerie-Tabs",
+  appTitle: "Browser Images",
   uiLangLabel: "Sprache der Oberfläche",
   galleryLabel: "Galerie",
   gallerySettingsLabel: "Galerie-Einstellungen",

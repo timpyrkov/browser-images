@@ -2,7 +2,7 @@
 // Interface strings for Italian (italiano). Keys must stay in sync with locales/en.js,
 // which t() falls back to for anything missing.
 export default {
-  appTitle: "Downloader di immagini per schede di gallerie",
+  appTitle: "Browser Images",
   uiLangLabel: "Lingua dell'interfaccia",
   galleryLabel: "Galleria",
   gallerySettingsLabel: "Impostazioni galleria",

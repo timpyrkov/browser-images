@@ -2,7 +2,7 @@
 // Interface strings for English -- the reference locale. Every other file in
 // this folder must use the same keys; t() falls back here for anything missing.
 export default {
-  appTitle: "Image Downloader for Gallery Tabs",
+  appTitle: "Browser Images",
   uiLangLabel: "Interface language",
   galleryLabel: "Gallery",
   gallerySettingsLabel: "Gallery settings",
