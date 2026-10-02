@@ -3,113 +3,97 @@
   <span style="font-size:2.5em; vertical-align: middle;"><b>Browser Images</b></span>
 </p></h1>
 
-Download Image Gallery Tabs Pictires (Chrome/Firefox extension)
+**Image Downloader for Gallery Tabs** — a Firefox and Chrome extension that downloads the
+images and videos from the gallery tabs you have open, one click for the whole window.
 
-## 🚀 Quick Start
-
-### Build
-
-```bash
-npm run build:firefox    # -> dist/firefox/
-npm run build:chrome     # -> dist/chrome/
-```
-
-### Firefox
-
-```
-about:debugging#/runtime/this-firefox
-```
-Then click **Load Temporary Add-on…** and select `dist/firefox/manifest.json`
-
-### Chrome
-
-```
-chrome://extensions/
-```
-Then click **Load unpacked** and select the `dist/chrome/` folder
-
----
-
-## ✨ Features
-
-- **One-Click Downloads:** A simple popup menu with a "Scan & Download" button to start the process.
-- **Smart Domain Filtering:** Only scans tabs from websites you've allowed. You can choose from a list of popular gallery sites or enable scanning for all websites.
-- **Duplicate Prevention:** The extension intelligently checks if a file already exists in your download folder (based on its filename) and will not download it again.
-- **Custom Download Folder:** Specify a subfolder name (e.g., "Gallery") inside your browser's main `Downloads` directory.
-- **Manual Tab Closing:** After a scan, a **Close downloaded tabs** button appears in the working area. Clicking it closes only the tabs whose images were successfully downloaded; failed or skipped tabs are left open.
-- **Persistent Settings:** All your preferences are saved and loaded automatically.
-
----
-
-## How to Build and Install for Development
-
-This project uses a simple Node.js build script to create browser-specific packages. This is required because Chrome and Firefox have different `manifest.json` requirements.
-
-### Prerequisites
-
-You must have [Node.js](https://nodejs.org/) installed to run the build script.
-
-### Step 1: Build the Extension
-
-From the root of the project folder, open your terminal and run one of the following commands:
-
--   **For Firefox:**
-    ```bash
-    npm run build:firefox
-    ```
--   **For Chrome (and other Chromium browsers):**
-    ```bash
-    npm run build:chrome
-    ```
-
-This will create a `dist/[browser]` folder (e.g., `dist/firefox`) containing the ready-to-install extension package.
-
-### Step 2: Install the Extension
-
-Now, load the generated package into your browser:
-
--   **In Firefox:**
-    1.  Navigate to `about:debugging#/runtime/this-firefox`.
-    2.  Click **"Load Temporary Add-on..."**
-    3.  Select the `manifest.json` file inside the `dist/firefox` folder.
-
--   **In Chrome:**
-    1.  Navigate to `chrome://extensions`.
-    2.  Enable **"Developer mode"**.
-    3.  Click **"Load unpacked"**.
-    4.  Select the entire `dist/chrome` folder.
-
-To apply any code changes you make in the `src` folder, you must re-run the build command and then reload the extension in your browser. 
-
-### Permanent Installation in Firefox (Unsigned Add-on)
-
-If you want to use the extension permanently in Firefox (not just as a temporary add-on):
-
-1. Go to `about:config` in Firefox and set `xpinstall.signatures.required` to `false` (for developer/testing use only).
-2. Go to `about:addons` → click the gear icon → "Install Add-on From File..."
-3. Select the `manifest.json` file from this project.
-4. The extension will remain installed across browser restarts, but will be marked as “Unsigned.”
-
-*Note: This is only recommended for personal/development use. For production, submit to [addons.mozilla.org](https://addons.mozilla.org/).*
-
----
-
-## How to Use
-
-1.  **Configure Your Settings:** Click the extension's icon in the toolbar and select **"Settings"**. Here you can set your preferred download folder, choose which websites to scan, and decide if tabs should close after downloading.
-2.  **Open Image Tabs:** Open one or more browser tabs to the main image pages you want to download (e.g., a specific image on DeviantArt, ArtStation, etc.). **Only tabs in the currently focused browser window are scanned.**
-3.  **Start the Scan:** Click the extension icon again and press the **"Scan & Download"** button.
-4.  The extension will scan your open tabs, find the main images on the allowed domains, and download any new images to your specified folder.
+Open the artworks, pins or artist galleries you want in tabs, pick the gallery in the
+sidebar, press **Download**. Each tab gets a row in the sidebar log showing what was
+downloaded, skipped or failed.
 
 ---
 
 ## Supported Galleries
 
-The extension currently provides dedicated support for:
+| Gallery | Single page | Multi-image / video | Whole gallery |
+|---|---|---|---|
+| **ArtStation** | Artwork at full size (up to 4K) | All images and ArtStation-hosted video clips | Artist portfolio |
+| **DeviantArt** | Deviation at full size | Carousels and videos | User gallery, favourites, search and tag pages |
+| **Pinterest** | Pin image | Animated and video pins, multi-video pins | Board pins (stops before "more ideas") |
 
-- ArtStation
-- DeviantArt
-- Pinterest
+Third-party embeds (e.g. YouTube videos inside an ArtStation project) are skipped.
+
+---
+
+## Features
+
+- **Sidebar panel** with a per-tab log, live progress, ETA, and All / Downloaded / Skipped /
+  Failed filters.
+- **Whole galleries** — with *Download whole gallery* on, a gallery, portfolio, search or
+  board tab is expanded into its individual artworks. *Follow gallery pages* walks past
+  the first page.
+- **Max date back** — skip artworks published before a chosen date; gallery walks stop
+  early once they pass it.
+- **Skip downloaded** — files already in the browser's download history are not fetched again.
+- **Skip videos** and, on DeviantArt, **Prefer preview size** for smaller files.
+- **Polite, adaptive pacing** — a configurable delay between downloads that grows
+  automatically when a site pushes back (HTTP 403/429 or refused downloads), with
+  cool-downs and retries; a tab is stopped if the site keeps refusing.
+- **Per-gallery folders** — images and videos go to their own subfolders under
+  `Downloads` (default `PIC` and `MOV`).
+- **Close downloaded tabs** — closes only the tabs whose downloads succeeded.
+- **9 interface languages** (English, German, Spanish, French, Italian, Japanese, Korean,
+  Russian, Chinese) and light / dark themes.
+- **No data collection** — see [PRIVACY.md](PRIVACY.md).
+
+---
+
+## How to Use
+
+1. Open the tabs you want to download in one browser window. **Only the current window
+   is scanned.**
+2. Open the extension's sidebar from the toolbar icon.
+3. Choose the gallery (ArtStation, DeviantArt or Pinterest). Only tabs from that gallery
+   are processed.
+4. Optionally adjust the settings (gear icon): folders, delay, max date, whole-gallery mode.
+5. Press **Download**. Press **Stop** to cancel a run.
+
+---
+
+## Install for Development
+
+Requires [Node.js](https://nodejs.org/).
+
+```bash
+npm run build            # lint + tests + both builds
+npm run build:firefox    # -> dist/firefox/
+npm run build:chrome     # -> dist/chrome/
+npm test                 # regression tests
+npm run package:firefox  # -> image-downloader-gallery-tabs-firefox.zip (for AMO upload)
+```
+
+**Firefox:** open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…**
+and select `dist/firefox/manifest.json`. Temporary add-ons are removed when Firefox restarts.
+
+**Chrome:** open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**
+and select the `dist/chrome/` folder.
+
+After changing anything in `src/`, rebuild and press **Reload** on the extension.
+
+### Project layout
+
+```
+src/
+  background.js        download queue, pacing, gallery expansion
+  content.js           injected into each tab; runs the gallery parser
+  galleries.js         parser registry and shared helpers
+  galleries/           one parser per gallery (artstation, deviantart, pinterest)
+  sidebar.html/.js     the UI
+  locales/             interface translations
+manifests/             per-browser manifest.json
+test/run.cjs           regression tests (no network)
+```
+
+---
 
 ## Roadmap
 
@@ -131,71 +115,20 @@ and maintenance before they can be enabled again:
 - [ ] X (Twitter)
 - [ ] Zerochan
 
-## Project To-Do & Nice-to-Have Features
-
-This is a list of potential improvements and features for the future.
-
-- [ ] **Switch to Sync Storage Before Release:**  
-      Change all `chrome.storage.local` to `chrome.storage.sync` in all scripts for cross-device sync before publishing.
-- [ ] **UI/UX Polish:**
-    - [ ] Add a visual progress bar during the download process.
-    - [ ] Show an image preview in the popup before downloading.
-    - [ ] Refactor the options page for a cleaner, more modern look.
-- [ ] **Core Functionality:**
-    - [ ] Allow users to define custom filename templates (e.g., `{domain}-{date}-{title}`).
-    - [ ] Add support for downloading images from background tabs without needing to activate them.
-- [ ] **Advanced Options:**
-    - [ ] Implement keyboard shortcuts for scanning.
-    - [ ] Allow per-domain settings (e.g., close tabs for Site A but not for Site B).
-
 ---
 
 ## Known Limitations
 
-- Duplicate checking is based on the browser’s downloads history, not the actual files on disk. If you delete a file from your Downloads folder but not from the browser’s Downloads page/history, the extension will still consider it as “already downloaded.”
+- **Duplicate checks use the browser's download history**, not the files on disk. A file
+  you deleted from `Downloads` still counts as downloaded until you also remove it from
+  the browser's Downloads list.
+- **Pinterest boards** download what the board page has rendered; very long boards may
+  need scrolling first.
+- **ArtStation search pages** are not supported yet; artist portfolios are.
+- Settings are stored locally in the browser and are not synced across devices.
 
 ---
 
-## Troubleshooting
+## License
 
-- **Why does the extension say a file already exists when I deleted it?**  
-  The extension checks the browser’s downloads history, not the actual files. To re-download a file, remove its entry from the browser’s Downloads page as well.
-
----
-
-### A Note for Developers
-
-> During development, the extension uses `chrome.storage.local` for settings storage. Before any potential publishing to an add-on store, this should be switched to `chrome.storage.sync` in all relevant scripts to enable cross-device synchronization of user settings.
-
----
-
-## 📋 TODO
-
-- **Publish to AMO (addons.mozilla.org)** so Firefox installs it permanently
-  instead of it disappearing on every restart as a temporary add-on. Unlisted
-  ("On your own") self-distribution is enough — Mozilla signs the `.xpi` without
-  listing it publicly:
-
-  ```bash
-  cd dist/firefox && web-ext sign --channel=unlisted --api-key=KEY --api-secret=SECRET
-  ```
-
-  The stable extension ID (`browser_specific_settings.gecko.id`) is already in
-  place, which is a prerequisite. Optionally add an `update_url` afterwards for
-  automatic updates instead of reinstalling by hand.
-- **Publish to the Chrome Web Store**, the Chrome analogue. Unlisted/private
-  distribution is available there too (one-time developer registration fee).
-  Loading `dist/chrome/` unpacked already persists across restarts, so this is
-  only needed for real distribution or to drop the developer-mode nag. Pin the
-  extension ID with a `"key"` manifest field if it should stay constant.
-- **Label manager** — one place to rename a label everywhere, merge two labels,
-  recolour, or delete one globally.
-- **More site rules** as they prove necessary — Twitch, Bluesky, Spotify, Amazon.
-- **Track focused time** alongside open time, to tell "open 3 weeks, never read"
-  from "read daily".
-
----
-
-## 📝 License
-
-MIT
+MIT — see [LICENSE](LICENSE).
