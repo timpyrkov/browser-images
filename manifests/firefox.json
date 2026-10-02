@@ -25,6 +25,7 @@
       "defaults.js",
       "naming.js",
       "galleries.js",
+      "galleries/artstation.js",
       "galleries/deviantart.js",
       "galleries/pinterest.js",
       "background.js"

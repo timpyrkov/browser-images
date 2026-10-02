@@ -21,11 +21,16 @@ function loadNaming() {
 }
 
 /* ------------------------------------------------------------ background */
-function loadBackground({ history = [], failUrls = [] } = {}) {
+// `interrupts` maps a URL to the reasons its next downloads are interrupted
+// with, e.g. { 'https://x/a.jpg': ['SERVER_FORBIDDEN'] }; `'*'` applies to all.
+function loadBackground({ history = [], failUrls = [], interrupts = {} } = {}) {
   const broadcasts = [], started = [], intervals = [], fetched = [];
+  const finalState = {};
   let handler = null;
   const s = { console: { log(){}, warn(){}, error(){} },
-    setTimeout: (fn) => fn(), clearTimeout: () => {},
+    // Run timers at once, except the 120 s settle timeout, which must not win
+    // the race against the download's real outcome.
+    setTimeout: (fn, ms) => (ms === 120000 ? 0 : fn()), clearTimeout: () => {},
     setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; },
     clearInterval: (id) => intervals.splice(id - 1, 1),
     Math, Date, URL, Promise, Number, Set, Error, AbortController,
@@ -35,10 +40,16 @@ function loadBackground({ history = [], failUrls = [] } = {}) {
         sendMessage: (m) => { broadcasts.push(m); return Promise.resolve(); },
         getPlatformInfo: (cb) => cb && cb({}), lastError: null },
       downloads: { onChanged: { addListener(){}, removeListener(){} },
-        search: ({ query }) => Promise.resolve(history.filter((h) => h.includes(query[0])).map((h) => ({ filename: h }))),
-        download: ({ url, filename }) => failUrls.includes(url)
-          ? Promise.reject(new Error('network failure'))
-          : (started.push(filename), Promise.resolve(started.length)) },
+        search: ({ query, id }) => Promise.resolve(id != null ? [finalState[id]]
+          : history.filter((h) => h.includes(query[0])).map((h) => ({ filename: h }))),
+        download: ({ url, filename }) => {
+          if (failUrls.includes(url)) return Promise.reject(new Error('network failure'));
+          started.push(filename);
+          const queue = interrupts[url] || interrupts['*'];
+          const reason = queue && (queue === interrupts['*'] ? queue[0] : queue.shift());
+          finalState[started.length] = reason ? { state: 'interrupted', error: reason } : { state: 'complete' };
+          return Promise.resolve(started.length);
+        } },
       storage: { local: { set(){}, get: (k, cb) => cb && cb({}) } },
       tabs: { query: (q, cb) => cb && cb([]), sendMessage: () => Promise.resolve() },
       scripting: { executeScript: () => Promise.resolve() } } };
@@ -49,12 +60,16 @@ function loadBackground({ history = [], failUrls = [] } = {}) {
 }
 
 /* --------------------------------------------------------------- parsers */
-function loadParsers() {
+// `fastTimers` resolves every setTimeout at once, for parsers that pace or
+// back off between requests.
+function loadParsers({ fastTimers = false } = {}) {
+  const waits = [];
   const s = { console: { log(){}, warn(){}, error(){} }, URL, Math, Set, RegExp, Number,
-    parseInt, parseFloat, encodeURIComponent, setTimeout, Promise, Array,
+    parseInt, parseFloat, encodeURIComponent, Promise, Array, waits,
+    setTimeout: fastTimers ? (fn, ms) => { waits.push(ms); fn(); } : setTimeout,
     document: { hidden: false }, location: { href: 'https://x/', hostname: 'x' } };
   s.self = s; s.window = s; vm.createContext(s);
-  for (const f of ['src/naming.js', 'src/galleries.js', 'src/galleries/deviantart.js', 'src/galleries/pinterest.js']) {
+  for (const f of ['src/naming.js', 'src/galleries.js', 'src/galleries/artstation.js', 'src/galleries/deviantart.js', 'src/galleries/pinterest.js']) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), s, { filename: f });
   }
   return s;
@@ -96,6 +111,28 @@ function loadParsers() {
   env = loadBackground({ failUrls: ['https://x/img0.jpg'] });
   await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(1) }, PATHS, env.s.createThrottle(0), true, false);
   eq('failure -> error (1)', [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count], ['error', 1]);
+
+  section('background: paced downloads (Pinterest policy)');
+  const POLICY = { awaitCompletion: true, minDelaySeconds: 1.5 };
+  env = loadBackground();
+  await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(3) }, PATHS, env.s.createThrottle(0), true, false, POLICY);
+  eq('paced: all complete -> downloaded (3)', [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count, env.started.length], ['downloaded', 3, 3]);
+
+  env = loadBackground({ interrupts: { 'https://x/img0.jpg': ['SERVER_FORBIDDEN'] } });
+  let thr = env.s.createThrottle(0);
+  await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(2) }, PATHS, thr, true, false, POLICY);
+  eq('paced: refused once -> retried and downloaded', [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count, env.started.length], ['downloaded', 2, 3]);
+
+  env = loadBackground({ interrupts: { '*': ['NETWORK_FAILED'] } });
+  thr = env.s.createThrottle(0);
+  await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(8) }, PATHS, thr, true, false, POLICY);
+  eq('paced: sustained refusal -> stops after 5 images x 3 attempts', env.started.length, 15);
+  eq('paced: blocked tab is reported', [lastRow(env.broadcasts).status, /BLOCKED/.test(lastRow(env.broadcasts).filename)], ['error', true]);
+  eq('paced: refusals slow the run down', thr.delaySeconds > 0, true);
+
+  env = loadBackground({ interrupts: { '*': ['NETWORK_FAILED'] } });
+  await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(2) }, PATHS, env.s.createThrottle(0), true, false);
+  eq('no policy: behaviour unchanged (no waiting, no retries)', env.started.length, 2);
 
   section('background: skip videos');
   const mixed = [{ imageUrl: 'https://x/a.jpg', filename: 'a.jpg' },
@@ -314,7 +351,111 @@ function loadParsers() {
   const boardResult = pinterest.extractIndexLinks(boardDoc, 'https://www.pinterest.com/someuser/wallpapers/', {});
   eq('board page extracts large pinimg images before more-ideas heading',
     boardResult && boardResult.images ? boardResult.images.map((i) => i.imageUrl) : [],
-    ['https://i.pinimg.com/236x/aa/aa/aa/pin1.jpg', 'https://i.pinimg.com/236x/bb/bb/bb/pin2.jpg']);
+    ['https://i.pinimg.com/736x/aa/aa/aa/pin1.jpg', 'https://i.pinimg.com/736x/bb/bb/bb/pin2.jpg']);
+
+  // A page wrapper whose textContent includes the heading must not be taken as
+  // the separator (it contains every image, which would exclude them all).
+  const wrapperDiv = { tagName: 'DIV', textContent: 'Chronicle 7 Pines ... Busca más ideas ...', children: [moreIdeasHeading] };
+  const wrapperDoc = {
+    ...boardDoc,
+    querySelectorAll: (sel) => (sel.includes('div') ? [wrapperDiv, moreIdeasHeading] : []),
+  };
+  eq('page wrapper containing "más ideas" text is not used as separator',
+    (pinterest.extractIndexLinks(wrapperDoc, 'https://www.pinterest.com/someuser/wallpapers/', {}).images || []).length, 2);
+
+  section('parsers: ArtStation');
+  // Shapes mirror real /projects/{hash}.json, /users/{name}/projects.json and
+  // video_clip player pages; names and ids are made up.
+  const AS = 'https://www.artstation.com';
+  const CDN = 'https://cdna.artstation.com/p/assets';
+  const clipEmbed = `${AS}/api/v2/animation/video_clips/1111-aaaa/embed.html?s=sig&t=1`;
+  const asProject = (hash, published, assets) => ({
+    hash_id: hash, title: `Title ${hash}`, published_at: `${published}T10:00:00.000-05:00`,
+    user: { username: 'someartist' }, assets,
+  });
+  const asImage = (id) => ({ asset_type: 'image', has_image: true, id,
+    image_url: `${CDN}/images/images/000/000/${id}/large/someartist-pic${id}.jpg?1700000000` });
+  const multi = asProject('MULTI1', '2024-10-08', [
+    asImage(1),
+    { asset_type: 'cover', has_image: false, id: 2, image_url: `${CDN}/covers/images/000/000/002/large/sq.jpg?1` },
+    { asset_type: 'video_clip', has_image: true, id: 3, image_url: `${CDN}/video_clips/images/thumb.jpg?1`,
+      player_embedded: `<iframe src='${clipEmbed}' width='2000' height='1000' frameborder='0'></iframe>` },
+    { asset_type: 'video', has_image: true, id: 4, image_url: `${CDN}/x/thumb.jpg?1`,
+      player_embedded: "<iframe src='https://www.youtube.com/embed/xyz'></iframe>" },
+    asImage(5),
+  ]);
+  const clipPage = '<video id="video" poster="p.jpg">'
+    + '<source media="(min-width: 1000px)" src="https://cdn.artstation.com/p/video_sources/002/000/980/clip.mp4" type="video/mp4" />'
+    + '<source media="(min-width: 0px)" src="https://cdn.artstation.com/p/video_sources/002/000/967/clip.mp4" type="video/mp4" />'
+    + '</video>';
+  // Fake fetch over a URL -> body table; a function body yields per-call statuses.
+  const asFetch = (table, log = []) => (url) => {
+    log.push(url);
+    let body = table[url];
+    if (typeof body === 'function') body = body();
+    if (body === undefined || typeof body === 'number') {
+      return Promise.resolve({ ok: false, status: body || 404 });
+    }
+    return Promise.resolve({ ok: true, status: 200,
+      json: () => Promise.resolve(body), text: () => Promise.resolve(body) });
+  };
+  const asDoc = (og) => ({ querySelector: (sel) => (sel.includes('og:image') && og ? { getAttribute: () => og } : null) });
+
+  let asParsers = loadParsers({ fastTimers: true });
+  const artstation = asParsers.GALLERY_PARSERS['artstation.com'];
+  eq('artwork page is a main view', artstation.isMainImageView('www.artstation.com', '/artwork/MULTI1'), true);
+  eq('artist profile is an index view', artstation.isIndexView('www.artstation.com', '/someartist'), true);
+  eq('site sections are not profiles', ['/search', '/learning/', '/artwork/MULTI1', '/marketplace']
+    .map((p) => artstation.isIndexView('www.artstation.com', p)), [false, false, false, false]);
+
+  const asTable = { [`${AS}/projects/MULTI1.json`]: multi, [clipEmbed]: clipPage };
+  const multiItems = await artstation.extractImageUrls(asDoc(null), `${AS}/artwork/MULTI1`, { fetch: asFetch(asTable) });
+  eq('multi-asset artwork: 4k images in order, cover and external video skipped, best clip source',
+    multiItems.map((i) => [i.kind, i.imageUrl]), [
+      ['image', `${CDN}/images/images/000/000/1/4k/someartist-pic1.jpg?1700000000`],
+      ['video', 'https://cdn.artstation.com/p/video_sources/002/000/980/clip.mp4'],
+      ['image', `${CDN}/images/images/000/000/5/4k/someartist-pic5.jpg?1700000000`],
+    ]);
+  eq('clip gets a unique filename (artist_asset_name)', multiItems[1].filename, 'someartist_3_clip.mp4');
+  eq('artwork carries its published date', multiItems[0].pageDate, '2024-10-08');
+
+  eq('JSON blocked -> og:image fallback',
+    (await artstation.extractImageUrls(asDoc(`${CDN}/og.jpg`), `${AS}/artwork/GONE`, { fetch: asFetch({}) }))
+      .map((i) => i.imageUrl), [`${CDN}/og.jpg`]);
+
+  let calls = 0;
+  const flaky = { [`${AS}/projects/SINGLE.json`]: () => (++calls === 1 ? 429 : asProject('SINGLE', '2025-01-01', [asImage(9)])) };
+  asParsers.waits.length = 0;
+  const flakyItems = await artstation.extractImageUrls(asDoc(null), `${AS}/artwork/SINGLE`, { fetch: asFetch(flaky) });
+  eq('429 -> waits, retries, succeeds', [flakyItems.length, asParsers.waits.includes(5000)], [1, true]);
+
+  // Portfolio: 3 projects over 2 pages, newest first.
+  const portfolio = {
+    [`${AS}/users/someartist/projects.json?page=1`]: { total_count: 3, data: [
+      { hash_id: 'P1', published_at: '2026-05-01T00:00:00Z' }, { hash_id: 'P2', published_at: '2025-06-01T00:00:00Z' }] },
+    [`${AS}/users/someartist/projects.json?page=2`]: { total_count: 3, data: [
+      { hash_id: 'P3', published_at: '2024-01-01T00:00:00Z' }] },
+    [`${AS}/projects/P1.json`]: asProject('P1', '2026-05-01', [asImage(11), asImage(12)]),
+    [`${AS}/projects/P2.json`]: asProject('P2', '2025-06-01', [asImage(21)]),
+    [`${AS}/projects/P3.json`]: asProject('P3', '2024-01-01', [asImage(31)]),
+  };
+  const progress = [];
+  let fetchLog = [];
+  const all = await artstation.extractIndexLinks(asDoc(null), `${AS}/someartist`,
+    { fetch: asFetch(portfolio, fetchLog), onProgress: (n, t) => progress.push(`${n}/${t}`) });
+  eq('portfolio: every project across pages', all.images.length, 4);
+  eq('portfolio: progress reported per project', progress, ['1/3', '2/3', '3/3']);
+
+  fetchLog = [];
+  const onePage = await artstation.extractIndexLinks(asDoc(null), `${AS}/someartist`,
+    { fetch: asFetch(portfolio, fetchLog), paginate: false });
+  eq('"Follow gallery pages" off: first page only', [onePage.images.length, fetchLog.some((u) => u.includes('page=2'))], [3, false]);
+
+  fetchLog = [];
+  const recent = await artstation.extractIndexLinks(asDoc(null), `${AS}/someartist`,
+    { fetch: asFetch(portfolio, fetchLog), maxDate: '2025-07-01' });
+  eq('max date: older projects not fetched, stops paging', [recent.images.length,
+    fetchLog.some((u) => u.includes('P2.json')), fetchLog.some((u) => u.includes('page=2'))], [2, false, false]);
 
   const F = loadParsers().findGalleryDomain;
   eq('regional host matches', F('es.pinterest.com'), 'pinterest.com');

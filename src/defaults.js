@@ -40,7 +40,7 @@ const DEFAULT_SETTINGS = {
   skipVideos: false,
 
   // Expand a gallery / search index tab into its individual deviations and
-  // download each of them. Currently honoured by DeviantArt.
+  // download each of them. Honoured by DeviantArt and Pinterest boards.
   expandGalleries: false,
 
   // While expanding, drive the index page's own "Next" control to reach

@@ -232,11 +232,10 @@ if (!self.__BI_CONTENT_LISTENER__) {
         const result = await getIndexLinks({ ...(request.options || {}), searchQuery });
         // Some parsers (e.g. Pinterest boards) return grid images directly
         // instead of links to fetch from the background.
+        // No tab-level date: a gallery spans many dates, and the parser has
+        // already applied the cutoff per item.
         if (result && result.images && result.images.length) {
-          const parser = findParser(location.hostname);
           const title = document.title?.trim() || location.hostname;
-          const pageDate = parser && typeof parser.extractPageDate === 'function'
-            ? parser.extractPageDate(document) : null;
           sendResponse({
             status: 'found-images',
             images: result.images.map((item) => ({
@@ -247,13 +246,13 @@ if (!self.__BI_CONTENT_LISTENER__) {
             isMainImageView: true,
             title,
             url: location.href,
-            pageDate,
+            pageDate: null,
           });
           return;
         }
         sendResponse({
           status: 'found-links',
-          links: result || [],
+          links: Array.isArray(result) ? result : [],
           searchQuery,
           sortOrder: getIndexSortOrder(),
           isIndexView: isIndexViewUrl(location.hostname, location.pathname),
@@ -290,7 +289,9 @@ if (!self.__BI_CONTENT_LISTENER__) {
         const isMainImageView = isMainImageViewUrl(hostname, pathname);
         const title = document.title?.trim() || location.hostname;
         const parser = findParser(hostname);
-        const pageDate = parser ? parser.extractPageDate(document) : null;
+        // A parser that read the date from its own data reports it per item.
+        const pageDate = downloadable.find((item) => item.pageDate)?.pageDate
+          || (parser ? parser.extractPageDate(document) : null);
         const images = downloadable.map((item) => ({
           imageUrl: item.imageUrl,
           filename: item.filename || extractImageFilename(item.imageUrl),

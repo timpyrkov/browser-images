@@ -31,13 +31,6 @@
     }
   }
 
-  function queryImageUrl(doc, selector) {
-    const el = doc.querySelector(selector);
-    if (!el) return null;
-    if (el.tagName === 'IMG') return el.currentSrc || el.src;
-    return el.getAttribute('content');
-  }
-
   function parseIsoDate(value) {
     if (!value) return null;
     const date = new Date(value);
@@ -78,37 +71,6 @@
     return null;
   }
 
-  function createParser({ domain, label, selectors, mainViewPath, excludePath, mainViewCheck }) {
-    const selectorList = Array.isArray(selectors) ? selectors : (selectors ? [selectors] : []);
-    return {
-      domain,
-      label,
-      isMainImageView(hostname, pathname) {
-        if (mainViewPath) return pathname.includes(mainViewPath);
-        if (excludePath) return !pathname.includes(excludePath);
-        if (mainViewCheck) {
-          try {
-            return mainViewCheck(pathname);
-          } catch (error) {
-            return true;
-          }
-        }
-        return true;
-      },
-      extractImageUrl(doc) {
-        for (const selector of selectorList) {
-          const raw = queryImageUrl(doc, selector);
-          const resolved = resolveImageUrl(raw);
-          if (resolved) return resolved;
-        }
-        return null;
-      },
-      extractPageDate(doc) {
-        return getPageDate(doc);
-      },
-    };
-  }
-
   // Rebuilt on every registration so the picker stays alphabetical no matter
   // what order the per-gallery modules happen to load in.
   function rebuildSupportedGalleries() {
@@ -147,18 +109,8 @@
     findGalleryDomain,
   };
 
-  // --- Individual gallery parsers ---
-
-  register(createParser({
-    domain: 'artstation.com',
-    label: 'ArtStation',
-    selectors: "meta[property='og:image']",
-    mainViewPath: '/artwork/',
-  }));
-
-  // DeviantArt and Pinterest are registered by their dedicated parser modules.
-  // Pinterest reads the live DOM instead of og:image, which can become stale
-  // after in-app navigation.
+  // ArtStation, DeviantArt and Pinterest are registered by their dedicated
+  // parser modules in galleries/, loaded after this file.
 
   global.GALLERY_PARSERS = GALLERY_PARSERS;
   rebuildSupportedGalleries();

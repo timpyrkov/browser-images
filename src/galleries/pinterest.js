@@ -164,10 +164,15 @@
   function findMoreIdeasMarker(doc) {
     const byTestId = doc.querySelector('[data-test-id="more-ideas-container"]');
     if (byTestId) return byTestId;
-    const headings = doc.querySelectorAll('h1, h2, h3, h4, span, div, p');
+    // Match the heading itself, not a page wrapper whose textContent merely
+    // includes it: short text, and no child element carrying the same text.
     const re = /más ideas|more ideas|more like this|más como esto|similar ideas/i;
-    for (const el of headings) {
-      if (re.test(el.textContent || '')) return el;
+    const matches = (el) => {
+      const text = (el.textContent || '').trim();
+      return text.length < 80 && re.test(text);
+    };
+    for (const el of doc.querySelectorAll('h1, h2, h3, h4, h5, h6, span, div, p')) {
+      if (matches(el) && !Array.from(el.children || []).some(matches)) return el;
     }
     return null;
   }
@@ -203,7 +208,9 @@
       });
 
     for (const img of candidates) {
-      const src = resolve(img.currentSrc || img.src);
+      // Grid thumbnails are 236x; the same hash is served at 736x (the size a
+      // pin closeup uses), so download that instead of the small preview.
+      const src = resolve((img.currentSrc || img.src).replace(/\/(?:236|474)x\//, '/736x/'));
       if (!src || seen.has(src)) continue;
       seen.add(src);
       images.push({ imageUrl: src, kind: 'image', title: img.alt || img.title || '' });
@@ -216,9 +223,9 @@
     return {
       domain: 'pinterest.com',
       label: 'Pinterest',
-      // Board/profile pages have no single main image; always expand them into
-      // their grid pins, even if the global 'expandGalleries' setting is off.
-      alwaysExpandIndex: true,
+      // pinimg.com refuses bursts, so wait for each file to finish before the
+      // next one and never go faster than this, whatever the global delay.
+      downloadPolicy: { awaitCompletion: true, minDelaySeconds: 1.5 },
       isMainImageView(hostname, pathname) {
         return /(^|\.)pinterest\./i.test(hostname || '') && isPinPage(pathname);
       },
@@ -227,13 +234,6 @@
       },
       extractPageDate(doc) {
         return helpers.getPageDate ? helpers.getPageDate(doc) : null;
-      },
-      parseDeviationHtml() {
-        // Pinterest board/profile pages cannot be parsed from raw HTML: the
-        // server returns an app shell and the pin grid is rendered by JS. This
-        // method exists only so background.js recognises the parser supports
-        // index pages; actual grid images are extracted in the content script.
-        return null;
       },
       extractIndexLinks(doc, href) {
         const images = extractGridImages(doc, href);

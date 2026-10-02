@@ -4,7 +4,7 @@
 // In Chrome service workers defaults.js must be loaded explicitly.
 // In Firefox background scripts it is loaded before this file by the manifest.
 if (typeof importScripts === 'function') {
-  importScripts('defaults.js', 'naming.js', 'galleries.js', 'galleries/deviantart.js', 'galleries/pinterest.js');
+  importScripts('defaults.js', 'naming.js', 'galleries.js', 'galleries/artstation.js', 'galleries/deviantart.js', 'galleries/pinterest.js');
 }
 
 /**
@@ -280,6 +280,12 @@ function throttleHit(throttle, reason, minCooldown = 0) {
   return cooldown * 1000;
 }
 
+/** Cooldown for the current level, without escalating again. */
+function throttleCooldownMs(throttle, minCooldown = 0) {
+  const level = Math.max(1, throttle.level);
+  return Math.min(RATE_LIMIT_MAX_COOLDOWN, Math.max(minCooldown, 5 * Math.pow(2, level - 1))) * 1000;
+}
+
 function throttleSuccess(throttle) {
   if (throttle.level === 0) return;
   throttle.streak++;
@@ -368,6 +374,64 @@ function watchDownloadErrors(throttle) {
   };
   chrome.downloads.onChanged.addListener(listener);
   return () => chrome.downloads.onChanged.removeListener(listener);
+}
+
+// A large video may legitimately take a while; past this we stop waiting and
+// move on, but the download itself keeps going.
+const DOWNLOAD_SETTLE_TIMEOUT_MS = 120000;
+const DOWNLOAD_MAX_ATTEMPTS = 3;
+
+/** Resolve once a download completes or is interrupted. */
+function waitForDownload(downloadId, timeoutMs = DOWNLOAD_SETTLE_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    let done = false;
+    let timer = null;
+    const finish = (state, error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      chrome.downloads.onChanged.removeListener(listener);
+      resolve({ state, error });
+    };
+    const listener = (delta) => {
+      if (delta.id !== downloadId || !delta.state) return;
+      if (delta.state.current === 'complete') finish('complete');
+      else if (delta.state.current === 'interrupted') finish('interrupted', delta.error?.current);
+    };
+    timer = setTimeout(() => finish('timeout'), timeoutMs);
+    chrome.downloads.onChanged.addListener(listener);
+    // It may have settled before the listener was attached.
+    Promise.resolve().then(() => chrome.downloads.search({ id: downloadId })).then((items) => {
+      const item = items && items[0];
+      if (item?.state === 'complete') finish('complete');
+      else if (item?.state === 'interrupted') finish('interrupted', item.error);
+    }).catch(() => {});
+  });
+}
+
+/**
+ * Download one file and wait for it to land. A server or network interrupt is
+ * the image host pushing back, so it cools down, slows the run and retries;
+ * after DOWNLOAD_MAX_ATTEMPTS it reports 'blocked'.
+ */
+async function downloadAndSettle(image, targetFolder, skipDownloaded, throttle) {
+  for (let attempt = 1; ; attempt++) {
+    const result = await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded);
+    if (result.status !== 'success') return result;
+    const settled = await waitForDownload(result.downloadId);
+    if (settled.state !== 'interrupted') return result;
+    const reason = settled.error || 'UNKNOWN';
+    if (!/^(SERVER|NETWORK)_/.test(reason)) return { status: 'error', message: `download ${reason}` };
+    // watchDownloadErrors has already escalated for these two.
+    if (!RATE_LIMIT_DOWNLOAD_ERRORS.has(reason)) throttleHit(throttle, `download ${reason}`);
+    if (attempt >= DOWNLOAD_MAX_ATTEMPTS || isCancelled()) {
+      return { status: 'blocked', message: `download ${reason}` };
+    }
+    const wait = throttleCooldownMs(throttle);
+    console.warn(`[Download] ${image.filename} interrupted (${reason}); retry ${attempt + 1}/`
+      + `${DOWNLOAD_MAX_ATTEMPTS} in ${wait / 1000}s`);
+    await sleep(wait);
+  }
 }
 
 function logItem(tab, status, extra = {}) {
@@ -585,13 +649,15 @@ async function downloadIndexTab(tab, links, ctx) {
  * row for that tab. A tab counts as downloaded when at least one of its
  * images landed, so a partly-duplicate tab still reads as a success.
  */
-async function downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos) {
+async function downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos, policy = null) {
   const { keep: images, dropped: droppedVideos } = withoutVideos(response.images, skipVideos);
   const allNames = response.images.map((image) => image.filename).join(', ');
   const counts = { downloaded: 0, skipped: droppedVideos, error: 0 };
   let thumbUrl = '';
   let lastReason = droppedVideos ? 'video' : '';
   let lastMessage = '';
+  let blockedStreak = 0;
+  let abandoned = false;
 
   // Everything on this tab was a video and videos are switched off.
   if (!images.length) {
@@ -616,13 +682,26 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
     }));
 
     const targetFolder = pickSubfolder(image.filename, galleryPath);
-    const result = await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded);
+    const result = policy?.awaitCompletion
+      ? await downloadAndSettle(image, targetFolder, skipDownloaded, throttle)
+      : await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded);
 
     if (result.status === 'success') {
       counts.downloaded++;
+      blockedStreak = 0;
       throttleSuccess(throttle);
       if (!thumbUrl) thumbUrl = image.imageUrl;
-      await delay(throttle.delaySeconds, throttle.delaySeconds);
+      // Jitter only for paced galleries: a fixed beat is easy to spot.
+      const pause = Math.max(throttle.delaySeconds, policy?.minDelaySeconds || 0);
+      await delay(pause, policy ? pause * 1.5 : pause);
+    } else if (result.status === 'blocked') {
+      counts.error++;
+      lastMessage = result.message;
+      if (++blockedStreak >= RATE_LIMIT_ABORT_STREAK) {
+        abandoned = true;
+        console.error(`[Download] Tab ${tab.id}: the server keeps refusing downloads; stopping this tab.`);
+        break;
+      }
     } else if (result.status === 'skipped') {
       counts.skipped++;
       lastReason = result.reason;
@@ -634,10 +713,13 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
     }
   }
 
-  const status = counts.downloaded ? 'downloaded' : (counts.skipped ? 'skipped' : 'error');
+  const status = abandoned ? 'error'
+    : counts.downloaded ? 'downloaded' : (counts.skipped ? 'skipped' : 'error');
   broadcast('download-progress', logItem(tab, status, {
     title: response.title,
-    filename: allNames,
+    filename: abandoned
+      ? `${counts.downloaded}/${images.length} images — BLOCKED by the server, retry later`
+      : allNames,
     thumbUrl: thumbUrl || images[0].imageUrl,
     count: counts[status],
     total: images.length,
@@ -686,7 +768,7 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
         // Programmatically inject the gallery registry and content script to ensure it's available
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ['naming.js', 'galleries.js', 'galleries/deviantart.js', 'galleries/pinterest.js', 'content.js'],
+          files: ['naming.js', 'galleries.js', 'galleries/artstation.js', 'galleries/deviantart.js', 'galleries/pinterest.js', 'content.js'],
         });
 
         broadcast('download-progress', logItem(tab, 'scanning'));
@@ -698,14 +780,14 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
           && typeof parser.isIndexView === 'function'
           && parser.isIndexView(url.hostname, url.pathname)
           && typeof parser.extractIndexLinks === 'function'
-          && (expandGalleries || parser.alwaysExpandIndex);
+          && expandGalleries;
 
         console.log(`[Download] Sending '${isIndex ? 'find-index-links' : 'find-main-image'}' to tab ${tab.id}`);
         if (isIndex) runState.harvestTabId = tab.id;
         const response = isIndex
           ? await chrome.tabs.sendMessage(tab.id, {
               command: 'find-index-links',
-              options: { paginate: galleryPaginate },
+              options: { paginate: galleryPaginate, maxDate },
             })
           : await chrome.tabs.sendMessage(tab.id, {
               command: 'find-main-image',
@@ -744,7 +826,8 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
               reason: 'not main image view'
             }));
           } else {
-            await downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos);
+            await downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos,
+              parser?.downloadPolicy);
           }
         } else if (response && response.status === 'skipped') {
           console.log(`[Download] Skipped tab ${tab.id}: ${response.reason}`);
