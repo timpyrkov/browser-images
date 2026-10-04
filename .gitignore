@@ -40,3 +40,8 @@ replay_pid*
 opera_guide.md
 chrome_guide.md
 amo_guide.md
+
+# Local notes: of the root markdown files only README.md and PRIVACY.md are published
+/*.md
+!/README.md
+!/PRIVACY.md
