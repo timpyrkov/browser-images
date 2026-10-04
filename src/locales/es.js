@@ -53,4 +53,6 @@ export default {
   filterSkipped: "Omitidas",
   filterFailed: "Fallidas",
   logEmptyHint: "Abre pestañas con imágenes y haz clic en <strong>Descargar</strong> para empezar.",
+  noticeLabel: "IMPORTANTE:",
+  noticeText: "Browser Images puede descargar muchas imágenes y vídeos a la vez, lo que puede ocupar mucho espacio en disco. Vigila el espacio libre de tu disco. Los sitios de galerías pueden cambiar el diseño de sus páginas en cualquier momento, lo que puede impedir la descarga de algunas imágenes o vídeos.",
 };

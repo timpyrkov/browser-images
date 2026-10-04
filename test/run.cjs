@@ -304,6 +304,13 @@ function loadParsers({ fastTimers = false } = {}) {
     await runIndex(env, ctx);
     eq(`${label}: walks the whole list`, env.fetched.length, 30);
   }
+  env = loadBackground();
+  await env.s.downloadIndexTab({ id: 1, url: 'u', title: 'G' }, links.slice(0, 2), {
+    parser: { parseDeviationHtml: () => null }, galleryPath: PATHS, throttle: env.s.createThrottle(0),
+    skipDownloaded: false, preferPreview: false, batchSize: 5 });
+  eq('a failed gallery row says why', [lastRow(env.broadcasts).status,
+    /2 failed \(could not read the deviation data/.test(lastRow(env.broadcasts).filename)], ['error', true]);
+
   eq('shiftDate crosses months', env.s.shiftDate('2026-08-01', -1), '2026-07-31');
   eq('shiftDate handles leap days', env.s.shiftDate('2028-03-01', -1), '2028-02-29');
 
@@ -328,6 +335,16 @@ function loadParsers({ fastTimers = false } = {}) {
     P.expectedIndexTotal(mkDoc(galleryState), 'https://www.deviantart.com/a/gallery/all?q=x'), null);
   eq('a search reports its term',
     P.indexSearchTerm(mkDoc(galleryState), 'https://www.deviantart.com/a/gallery?q=steampunk+truck'), 'steampunk truck');
+
+  // Real title slugs from a gallery that stalled at 9/15: dots and
+  // percent-escaped punctuation must not drop a deviation.
+  const slugs = ['Field-Work-1387976438', 'Earth-never-stood-a-chance...-1387520503',
+    'For-the-Mines%2C-or-for-the-Arena-1380093459', 'Perhaps-space-exploration-wasn%27t-such-a-great-idea....-1364725210'];
+  const slugAnchors = [...slugs.map((s) => `https://www.deviantart.com/a/art/${s}`),
+    'https://www.deviantart.com/someoneelse/art/Theirs-1', 'https://www.deviantart.com/a/art/No-Id',
+    'https://www.deviantart.com/a/art/Has-Query-5?x=1'];
+  eq('every owned deviation link is collected, whatever its title punctuation',
+    (await P.extractIndexLinks(mkDoc(galleryState, slugAnchors), 'https://www.deviantart.com/a/gallery/all', { paginate: false })).length, 4);
 
   const daHref = 'https://www.deviantart.com/artist/art/Work-123';
   const daFull = 'https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/abc/work.jpg';
@@ -367,6 +384,38 @@ function loadParsers({ fastTimers = false } = {}) {
       { fetch: () => Promise.resolve({ ok: false, status: 500 }) })).map((i) => i.imageUrl), [daFull]);
   eq('fetched deviation pages still parse by their own id',
     P.parseDeviationHtml(freshHtml, daHref).images.map((i) => i.imageUrl), [daFull]);
+
+  // A background that never answers (e.g. an older one still running after
+  // the files were updated) must degrade to the next fallback, not an error.
+  parsers.__BI_PAGE_STATE__ = () => Promise.reject(new Error('The message port closed before a response was received.'));
+  let threw = null;
+  let viaFetch = [];
+  try {
+    viaFetch = await P.extractImageUrls(noEmbeddedStateDoc, daHref, { fetch: freshFetch });
+  } catch (error) { threw = error.message; }
+  eq('state bridge rejects -> no error, current page fetched instead', [threw, viaFetch.map((i) => i.imageUrl)], [null, [daFull]]);
+  delete parsers.__BI_PAGE_STATE__;
+
+  // content.js defines the Chromium bridges only where there is no `browser`
+  // global, and they swallow an unanswered message.
+  const loadContent = (withBrowser, sendMessage) => {
+    const c = { console: { log() {}, warn() {}, error() {} }, URL, Promise, Error, JSON,
+      location: { href: 'https://www.deviantart.com/a/art/B-1', hostname: 'www.deviantart.com' },
+      document: { querySelector: () => null, images: [] },
+      fetch: (url) => Promise.resolve({ ok: true, status: 200, direct: url }),
+      chrome: { runtime: { sendMessage, onMessage: { addListener() {} } } } };
+    if (withBrowser) c.browser = c.chrome;
+    c.self = c; vm.createContext(c);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/content.js'), 'utf8'), c, { filename: 'content.js' });
+    return c;
+  };
+  const rejecting = () => Promise.reject(new Error('Could not establish connection.'));
+  eq('Firefox: no Chromium bridges defined',
+    [typeof loadContent(true, rejecting).__BI_PAGE_STATE__, typeof loadContent(true, rejecting).__BI_PAGE_FETCH__], ['undefined', 'undefined']);
+  const chromium = loadContent(false, rejecting);
+  eq('Chromium: unanswered page-state -> null, not a throw', await chromium.__BI_PAGE_STATE__(), null);
+  eq('Chromium: unanswered page-fetch -> direct fetch, not a throw',
+    (await chromium.__BI_PAGE_FETCH__('https://www.deviantart.com/x')).direct, 'https://www.deviantart.com/x');
 
   const pinterest = loadParsers().GALLERY_PARSERS['pinterest.com'];
   eq('pinterest pin is a main view', pinterest.isMainImageView('es.pinterest.com', '/pin/123/'), true);
@@ -643,6 +692,20 @@ function loadParsers({ fastTimers = false } = {}) {
     { fetch: asFetch(portfolio, fetchLog), maxDate: '2025-07-01' });
   eq('max date: older projects not fetched, stops paging', [recent.images.length,
     fetchLog.some((u) => u.includes('P2.json')), fetchLog.some((u) => u.includes('page=2'))], [2, false, false]);
+
+  section('interface languages');
+  const { pathToFileURL } = require('url');
+  const loadLocale = async (lang) => (await import(pathToFileURL(path.join(ROOT, `src/locales/${lang}.js`)).href)).default;
+  const en = await loadLocale('en');
+  const langs = fs.readdirSync(path.join(ROOT, 'src/locales')).map((f) => f.replace('.js', '')).filter((l) => l !== 'en');
+  const mismatched = [];
+  for (const lang of langs) {
+    const keys = Object.keys(await loadLocale(lang)).sort();
+    if (JSON.stringify(keys) !== JSON.stringify(Object.keys(en).sort())) mismatched.push(lang);
+  }
+  eq('every language has exactly the English keys', mismatched, []);
+  eq('the disk-space / layout notice is translated everywhere',
+    (await Promise.all(langs.map(loadLocale))).every((l) => l.noticeLabel && l.noticeText && l.noticeText !== en.noticeText), true);
 
   const F = loadParsers().findGalleryDomain;
   eq('regional host matches', F('es.pinterest.com'), 'pinterest.com');

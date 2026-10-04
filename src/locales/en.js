@@ -53,4 +53,6 @@ export default {
   filterSkipped: "Skipped",
   filterFailed: "Failed",
   logEmptyHint: "Open image-detail tabs and click <strong>Download</strong> to start.",
+  noticeLabel: "IMPORTANT:",
+  noticeText: "Browser Images can download many images and videos at once, which can take up a lot of disk space. Please keep an eye on your free disk space. Gallery websites can change their page layout at any time, which may stop some images or videos from downloading.",
 };

@@ -9,6 +9,9 @@ body {
   height: 560px;
   min-height: 560px;
   overflow: hidden;
+  /* Include the body padding in the 560px, or the bottom 2rem (where the
+     notice sits) is cut off by the overflow. */
+  box-sizing: border-box;
 }
 
 /* The sidebar fills the viewport with 100vh, which is circular in a popup

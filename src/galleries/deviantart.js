@@ -57,9 +57,10 @@
 
   function getDeviantArtStateFromWindow(doc) {
     // Chromium/Opera: content.js asks the background to read this one global
-    // from the page's MAIN world. Firefox keeps the proven inline bridge below.
+    // from the page's MAIN world (content.js defines the bridge only there).
+    // Firefox keeps the inline-script bridge below.
     if (global && typeof global.__BI_PAGE_STATE__ === 'function') {
-      return global.__BI_PAGE_STATE__();
+      return global.__BI_PAGE_STATE__().catch(() => null);
     }
     return new Promise((resolve) => {
       let resolved = false;
@@ -364,9 +365,14 @@
     }
   }
 
-  /** Absolute deviation URL, or null when `href` is not one. */
+  /**
+   * Absolute deviation URL, or null when `href` is not one. The title slug can
+   * hold any URL-safe text - dots ("chance...") and percent-escapes (%2C, %27)
+   * included - so only path separators are excluded; the numeric id at the
+   * end is what identifies the deviation.
+   */
   function deviationHref(href, owner) {
-    const match = /^https?:\/\/(?:www\.)?deviantart\.com\/([^/]+)\/art\/[A-Za-z0-9-]+-\d+$/.exec(String(href || ''));
+    const match = /^https?:\/\/(?:www\.)?deviantart\.com\/([^/?#]+)\/art\/[^/?#]+-\d+$/.exec(String(href || ''));
     if (!match) return null;
     if (owner && match[1].toLowerCase() !== owner) return null;
     return href;
@@ -641,7 +647,11 @@
    */
   async function fetchCurrentDeviation(href, options = {}) {
     try {
+      /* global content */
       const doFetch = options.fetch
+        // Firefox: content.fetch sends the request as the page itself.
+        || (typeof content !== 'undefined' && content && typeof content.fetch === 'function'
+          ? (url) => content.fetch(url, { credentials: 'include' }) : null)
         || (global && typeof global.__BI_PAGE_FETCH__ === 'function' ? global.__BI_PAGE_FETCH__ : null)
         || ((url) => fetch(url, { credentials: 'include' }));
       const response = await doFetch(href);

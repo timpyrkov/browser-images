@@ -128,6 +128,8 @@ function applyTranslations() {
   setText($('closeDownloadedTabsBtn'), t(lang, 'closeDownloadedTabsBtn'));
   setText($('resetLogBtn'), t(lang, 'resetLogBtn'));
   setText($('stopBtn'), t(lang, 'stopBtn'));
+  setText($('noticeLabel'), t(lang, 'noticeLabel'));
+  setText($('noticeText'), t(lang, 'noticeText'));
 
   setText($('summaryTotalLabel'), t(lang, 'summaryTotal'));
   setText($('summaryDownloadedLabel'), t(lang, 'summaryDownloaded'));
@@ -419,7 +421,10 @@ function renderLog() {
 
     const filename = document.createElement('div');
     filename.className = 'log-filename';
-    filename.textContent = entry.filename || '';
+    // A failed or skipped tab often has no file name; show why instead.
+    const why = entry.status === 'error' || entry.status === 'skipped' ? (entry.message || entry.reason || '') : '';
+    filename.textContent = entry.filename || why;
+    if (why) row.title = why;
 
     info.appendChild(title);
     info.appendChild(filename);

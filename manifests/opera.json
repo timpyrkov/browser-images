@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Browser Images",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Image downloader from open browser tabs.",
   "icons": {
     "16": "icons/icon-16.png",

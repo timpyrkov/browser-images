@@ -13,11 +13,24 @@
   <script src="theme.js"></script>
   <script type="module" src="sidebar.js"></script>
   <style>
+    /* The panel is exactly the window: the page itself never scrolls, only
+       the results list inside it does. styles.css gives body
+       min-height: 100vh for popup/options cards, which together with the
+       padding made the page 2rem taller than the window. */
+    html {
+      height: 100%;
+      overflow: hidden;
+    }
+
     /* Override the shared body layout meant for popup/options cards. */
     body {
       display: block;
       margin: 0;
       padding: 1rem;
+      box-sizing: border-box;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
       background-color: var(--background);
       color: var(--foreground);
       font-size: 14px;
@@ -29,7 +42,9 @@
       display: flex;
       flex-direction: column;
       width: 100%;
-      height: 100vh;
+      /* Fills the body's padded box; the results pane is the flexible part
+         and gives up whatever height the notice needs. */
+      height: 100%;
       box-sizing: border-box;
       overflow: hidden;
     }
@@ -321,6 +336,20 @@
       background: var(--neutral-1);
     }
 
+    /* Standing notice at the foot of the panel, outside the scrolling log. */
+    .panel-notice {
+      flex-shrink: 0;
+      margin: 0.6em 0 0;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--text-secondary);
+    }
+
+    .panel-notice-label {
+      color: var(--error);
+      font-weight: 700;
+    }
+
     .summary-bar {
       display: flex;
       gap: 0.75em;
@@ -586,6 +615,8 @@
            shift position as messages come and go. -->
       <div class="loading-text" id="statusText" style="display: none;"></div>
     </div>
+    <p class="panel-notice"><span class="panel-notice-label" id="noticeLabel">IMPORTANT:</span>
+      <span id="noticeText">Browser Images can download many images and videos at once, which can take up a lot of disk space. Please keep an eye on your free disk space. Gallery websites can change their page layout at any time, which may stop some images or videos from downloading.</span></p>
   </div>
 
   <script type="module" src="sidebar.js"></script>

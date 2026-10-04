@@ -16,29 +16,44 @@ function findParser(hostname) {
 }
 
 /*
- * Chromium content-script fetches do not inherit the page's same-origin
- * context. ArtStation's Cloudflare therefore rejects /projects/*.json in
- * Opera even while the page itself is open. The background runs this request
- * in the tab's MAIN world after verifying it is same-origin. Firefox's
- * content.fetch path remains preferred and does not use this bridge.
+ * Chromium-only page-context bridges (Chrome, Opera, Yandex). Firefox keeps
+ * its own paths - content.fetch for ArtStation, the inline-script bridge for
+ * DeviantArt - so these are not defined there at all.
+ *
+ * - Chromium content-script fetches do not carry the page's same-origin
+ *   context, so ArtStation's Cloudflare rejects /projects/*.json. The
+ *   background runs the request in the tab's MAIN world (same origin only).
+ * - DeviantArt's CSP blocks the inline-script bridge in Opera, so its state
+ *   global is read from the MAIN world instead.
+ *
+ * Neither may ever throw into a parser: a background that does not answer
+ * (e.g. an older background still running after the files were updated)
+ * must degrade to the next fallback, never turn the tab into an error.
  */
-self.__BI_PAGE_FETCH__ = async function pageContextFetch(url) {
-  const reply = await chrome.runtime.sendMessage({ command: 'page-fetch', url });
-  if (!reply || reply.error) throw new Error(reply?.error || 'Page fetch failed');
-  return {
-    ok: reply.ok,
-    status: reply.status,
-    json: async () => JSON.parse(reply.body),
-    text: async () => reply.body,
+if (typeof browser === 'undefined') {
+  self.__BI_PAGE_FETCH__ = async function pageContextFetch(url) {
+    let reply = null;
+    try {
+      reply = await chrome.runtime.sendMessage({ command: 'page-fetch', url });
+    } catch (error) { /* no answer from the background: use a direct fetch */ }
+    if (!reply || reply.error) return fetch(url, { credentials: 'include' });
+    return {
+      ok: reply.ok,
+      status: reply.status,
+      json: async () => JSON.parse(reply.body),
+      text: async () => reply.body,
+    };
   };
-};
 
-// Read DeviantArt's in-page state from Chromium's MAIN world. Injecting an
-// inline <script> is blocked by DeviantArt's CSP in Opera.
-self.__BI_PAGE_STATE__ = async function pageContextState() {
-  const reply = await chrome.runtime.sendMessage({ command: 'page-state' });
-  return reply && !reply.error ? reply.state : null;
-};
+  self.__BI_PAGE_STATE__ = async function pageContextState() {
+    try {
+      const reply = await chrome.runtime.sendMessage({ command: 'page-state' });
+      return reply && !reply.error ? reply.state : null;
+    } catch (error) {
+      return null;
+    }
+  };
+}
 
 function resolveImageUrl(rawUrl) {
   if (!rawUrl) return null;

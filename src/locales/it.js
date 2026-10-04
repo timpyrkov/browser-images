@@ -53,4 +53,6 @@ export default {
   filterSkipped: "Saltate",
   filterFailed: "Fallite",
   logEmptyHint: "Apri le schede con le immagini e fai clic su <strong>Scarica</strong> per iniziare.",
+  noticeLabel: "IMPORTANTE:",
+  noticeText: "Browser Images può scaricare molte immagini e video alla volta, occupando molto spazio su disco. Tieni d’occhio lo spazio libero sul disco. I siti di gallerie possono cambiare il layout delle pagine in qualsiasi momento, impedendo il download di alcune immagini o video.",
 };

@@ -53,4 +53,6 @@ export default {
   filterSkipped: "Ignorées",
   filterFailed: "Échecs",
   logEmptyHint: "Ouvrez des onglets d'images et cliquez sur <strong>Télécharger</strong> pour commencer.",
+  noticeLabel: "IMPORTANT :",
+  noticeText: "Browser Images peut télécharger de nombreuses images et vidéos à la fois, ce qui peut occuper beaucoup d'espace disque. Surveillez l'espace libre de votre disque. Les sites de galeries peuvent modifier la mise en page de leurs pages à tout moment, ce qui peut empêcher le téléchargement de certaines images ou vidéos.",
 };

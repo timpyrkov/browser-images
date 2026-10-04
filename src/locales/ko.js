@@ -53,4 +53,6 @@ export default {
   filterSkipped: "건너뜀",
   filterFailed: "실패",
   logEmptyHint: "이미지 탭을 열고 <strong>다운로드</strong>를 클릭하세요.",
+  noticeLabel: "중요:",
+  noticeText: "Browser Images는 많은 이미지와 동영상을 한 번에 다운로드할 수 있어 디스크 공간을 많이 차지할 수 있습니다. 남은 디스크 공간을 수시로 확인하세요. 갤러리 웹사이트의 페이지 구성은 언제든지 바뀔 수 있으며, 이 경우 일부 이미지나 동영상을 다운로드하지 못할 수 있습니다.",
 };

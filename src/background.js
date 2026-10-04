@@ -585,6 +585,7 @@ async function downloadIndexTab(tab, links, ctx) {
   let blockedStreak = 0;                 // consecutive rate-limited pages
   let abandoned = false;                 // stopped early because we are blocked
   const skippedReasons = new Set();      // e.g. subscription locked, literature
+  let lastError = '';                    // shown on the row so failures are explainable
   const size = Math.max(1, Number(batchSize) || DEFAULT_SETTINGS.batchSize);
 
   for (let start = 0; start < links.length && !isCancelled() && !abandoned && !stoppedAtCutoff;) {
@@ -619,6 +620,7 @@ async function downloadIndexTab(tab, links, ctx) {
 
       if (page.error) {
         counts.error++;
+        lastError = `could not load a deviation page: ${page.error}`;
         console.error(`[Download] Could not fetch ${page.url}: ${page.error}`);
         if (/rate limited|HTTP 403|HTTP 429/.test(page.error)) {
           blockedStreak++;
@@ -636,6 +638,7 @@ async function downloadIndexTab(tab, links, ctx) {
       const parsed = parser.parseDeviationHtml(page.html, page.url, { preferPreview });
       if (!parsed) {
         counts.error++;
+        lastError = 'could not read the deviation data on a page';
         console.warn(`[Download] Could not parse ${page.url}`);
         continue;
       }
@@ -683,6 +686,7 @@ async function downloadIndexTab(tab, links, ctx) {
           counts.skipped++;
         } else {
           counts.error++;
+          lastError = `download failed: ${result.message || 'unknown error'}`;
         }
       }
     }
@@ -694,9 +698,11 @@ async function downloadIndexTab(tab, links, ctx) {
   const stopped = abandoned ? ` — BLOCKED after ${processed}/${links.length}, retry later`
     : stoppedAtCutoff ? ` — reached the ${maxDate} cutoff after ${processed}/${links.length}` : '';
   const why = skippedReasons.size ? `, skipped: ${Array.from(skippedReasons).join(', ')}` : '';
+  const failed = counts.error && lastError ? ` — ${counts.error} failed (${lastError})` : '';
   broadcast('download-progress', logItem(tab, status, {
     title: tab.title,
-    filename: `${links.length} deviations, ${counts.downloaded} images${why}${throttled}${stopped}`,
+    filename: `${links.length} deviations, ${counts.downloaded} images${why}${throttled}${stopped}${failed}`,
+    message: lastError,
     thumbUrl,
     count: counts[status],
     searchQuery,

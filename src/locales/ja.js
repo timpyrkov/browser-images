@@ -53,4 +53,6 @@ export default {
   filterSkipped: "スキップ",
   filterFailed: "失敗",
   logEmptyHint: "画像のタブを開き、<strong>ダウンロード</strong>をクリックしてください。",
+  noticeLabel: "重要:",
+  noticeText: "Browser Images は大量の画像や動画を一度にダウンロードできるため、ディスク容量を大きく消費することがあります。空き容量にご注意ください。ギャラリーサイトのページ構成は予告なく変更されることがあり、その場合一部の画像や動画をダウンロードできなくなる可能性があります。",
 };
