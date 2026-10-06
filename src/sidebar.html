@@ -474,6 +474,7 @@
     .status-downloaded { color: var(--color-success); }
     .status-skipped { color: var(--color-warning); }
     .status-error { color: var(--color-error); }
+    .status-partial { color: var(--color-error); }
     .status-scanning { color: var(--primary-1); }
 
     .welcome-text {
@@ -616,7 +617,7 @@
       <div class="loading-text" id="statusText" style="display: none;"></div>
     </div>
     <p class="panel-notice"><span class="panel-notice-label" id="noticeLabel">IMPORTANT:</span>
-      <span id="noticeText">Browser Images can download many images and videos at once, which can take up a lot of disk space. Please keep an eye on your free disk space. Gallery websites can change their page layout at any time, which may stop some images or videos from downloading.</span></p>
+      <span id="noticeText">Browser Images can download many images and videos at once, which can take up a lot of disk space. Please keep an eye on your free disk space. Gallery websites can change their page layout at any time, which may stop some images or videos from downloading. Videos embedded from other sites, such as YouTube, are not downloaded.</span></p>
   </div>
 
   <script type="module" src="sidebar.js"></script>

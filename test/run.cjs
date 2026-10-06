@@ -167,6 +167,24 @@ function loadParsers({ fastTimers = false } = {}) {
   await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(2) }, PATHS, env.s.createThrottle(0), true, false);
   eq('no policy: behaviour unchanged (no waiting, no retries)', env.started.length, 2);
 
+  section('background: partial downloads');
+  env = loadBackground();
+  await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(5), unavailable: 3 }, PATHS, env.s.createThrottle(0), true, false);
+  eq('progress counts undownloadable items too: Downloading (1/8) ... (5/8)',
+    env.broadcasts.filter((m) => m.type === 'download-progress' && m.item.status === 'downloading')
+      .map((m) => `${m.item.count}/${m.item.total}`), ['1/8', '2/8', '3/8', '4/8', '5/8']);
+  eq('5 downloaded + 3 undownloadable -> Partial (5/8) with an explanation',
+    [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count, lastRow(env.broadcasts).total, /YouTube/.test(lastRow(env.broadcasts).message)],
+    ['partial', 5, 8, true]);
+  env = loadBackground({ history: ['/d/PIC/img0.jpg'] });
+  await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(2), unavailable: 1 }, PATHS, env.s.createThrottle(0), true, false);
+  eq('files already present count as got: Partial (2/3)',
+    [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count, lastRow(env.broadcasts).total], ['partial', 2, 3]);
+  env = loadBackground();
+  await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(2) }, PATHS, env.s.createThrottle(0), true, false);
+  eq('no undownloadable items -> plain Downloaded (2), as before',
+    [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count], ['downloaded', 2]);
+
   section('background: skip videos');
   const mixed = [{ imageUrl: 'https://x/a.jpg', filename: 'a.jpg' },
                  { imageUrl: 'https://x/v.mp4', filename: 'clip.mp4' }];
@@ -659,6 +677,24 @@ function loadParsers({ fastTimers = false } = {}) {
       .map((i) => i.imageUrl), [validOg.replace('/large/', '/4k/')]);
   eq('ArtStation disables content.js generic og/image fallbacks', artstation.disableGenericFallback, true);
 
+  // A project whose only content is a YouTube embed: nothing to download, and
+  // the row says why instead of "no image found".
+  const ytAsset = { asset_type: 'video', has_image: true, has_embedded_player: true, id: 77,
+    image_url: `${CDN}/covers/images/000/000/077/large/yt-thumb.jpg?1`,
+    player_embedded: "<iframe src='https://www.youtube.com/embed/abc'></iframe>" };
+  const ytOnly = { [`${AS}/projects/YT1.json`]: asProject('YT1', '2025-01-01', [ytAsset]) };
+  const ytItems = await artstation.extractImageUrls(
+    asDoc(genericShare, [renderedAsset([rendered1])]), `${AS}/artwork/YT1`, { fetch: asFetch(ytOnly) });
+  eq('YouTube-only project -> no files, not even a guess from the page', ytItems, []);
+  eq('...and 1 undownloadable item is reported', artstation.unavailableCount(), 1);
+  const ytMixed = { [`${AS}/projects/YT2.json`]: asProject('YT2', '2025-01-01', [asImage(88), ytAsset]) };
+  eq('project with an image and a YouTube embed -> image downloaded, 1 unavailable',
+    [(await artstation.extractImageUrls(asDoc(null), `${AS}/artwork/YT2`, { fetch: asFetch(ytMixed) })).length,
+      artstation.unavailableCount()], [1, 1]);
+  eq('3 files + 1 YouTube embed -> 3 downloadable, 1 unavailable (row: Partial 3/4)',
+    [(await artstation.extractImageUrls(asDoc(null), `${AS}/artwork/MULTI1`, { fetch: asFetch(asTable) })).length,
+      artstation.unavailableCount()], [3, 1]);
+
   let calls = 0;
   const flaky = { [`${AS}/projects/SINGLE.json`]: () => (++calls === 1 ? 429 : asProject('SINGLE', '2025-01-01', [asImage(9)])) };
   asParsers.waits.length = 0;
@@ -692,6 +728,25 @@ function loadParsers({ fastTimers = false } = {}) {
     { fetch: asFetch(portfolio, fetchLog), maxDate: '2025-07-01' });
   eq('max date: older projects not fetched, stops paging', [recent.images.length,
     fetchLog.some((u) => u.includes('P2.json')), fetchLog.some((u) => u.includes('page=2'))], [2, false, false]);
+
+  section('manifests: minimal permissions');
+  const GALLERY_HOSTS = ['https://*.artstation.com/*', 'https://*.deviantart.com/*', 'https://*.pinterest.com/*'];
+  for (const browser of ['firefox', 'chrome', 'opera']) {
+    const m = JSON.parse(fs.readFileSync(path.join(ROOT, `manifests/${browser}.json`), 'utf8'));
+    eq(`${browser}: host access only to the three galleries`,
+      [m.host_permissions, m.optional_host_permissions || null], [GALLERY_HOSTS, null]);
+    eq(`${browser}: no <all_urls>, tabs or activeTab`,
+      [...m.permissions, ...m.host_permissions].filter((p) => ['<all_urls>', 'tabs', 'activeTab'].includes(p)), []);
+  }
+  eq('every registered gallery is covered by a host permission',
+    Object.keys(loadParsers().GALLERY_PARSERS).every((d) => GALLERY_HOSTS.includes(`https://*.${d}/*`)), true);
+
+  env = loadBackground();
+  await env.s.downloadImagesSequentially(
+    [{ id: 1, url: undefined, title: undefined }, { id: 2, url: 'https://example.org/', title: 'Other' }],
+    '', {}, 0, 'deviantart.com', '', true, false, false, true, 5, false);
+  eq('tabs the browser hides (no url) and other sites are skipped quietly',
+    env.broadcasts.filter((m) => m.type === 'download-progress').length, 0);
 
   section('interface languages');
   const { pathToFileURL } = require('url');

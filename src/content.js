@@ -249,6 +249,16 @@ function getIndexSearchTerm() {
   }
 }
 
+/** Items the gallery's parser found on this page but cannot download. */
+function unavailableCount() {
+  const parser = findParser(location.hostname);
+  try {
+    return parser && typeof parser.unavailableCount === 'function' ? Number(parser.unavailableCount()) || 0 : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
 function isIndexViewUrl(hostname, pathname) {
   const parser = findParser(hostname);
   return !!(parser && typeof parser.isIndexView === 'function' && parser.isIndexView(hostname, pathname));
@@ -275,8 +285,14 @@ if (!self.__BI_CONTENT_LISTENER__) {
         // instead of links to fetch from the background.
         // No tab-level date: a gallery spans many dates, and the parser has
         // already applied the cutoff per item.
-        if (result && result.images && result.images.length) {
+        const unavailable = (result && Number(result.unavailable)) || 0;
+        if (result && result.images && (result.images.length || unavailable)) {
           const title = document.title?.trim() || location.hostname;
+          if (!result.images.length) {
+            // Only undownloadable items (e.g. an all-YouTube portfolio).
+            sendResponse({ status: 'partial', count: 0, total: unavailable, title });
+            return;
+          }
           sendResponse({
             status: 'found-images',
             images: result.images.map((item) => ({
@@ -288,6 +304,7 @@ if (!self.__BI_CONTENT_LISTENER__) {
             title,
             url: location.href,
             pageDate: null,
+            unavailable,
           });
           return;
         }
@@ -322,7 +339,12 @@ if (!self.__BI_CONTENT_LISTENER__) {
             sendResponse({ status: 'skipped', reason: 'data-url' });
             return;
           }
-          sendResponse({ status: 'not-found' });
+          // Everything found is undownloadable (e.g. an ArtStation project that
+          // is only a YouTube embed): report "Partial (0/n)", not "no image".
+          const unavailable = unavailableCount();
+          sendResponse(unavailable
+            ? { status: 'partial', count: 0, total: unavailable, title: document.title?.trim() || location.hostname }
+            : { status: 'not-found' });
           return;
         }
         const hostname = location.hostname;
@@ -346,6 +368,7 @@ if (!self.__BI_CONTENT_LISTENER__) {
           title: images[0]?.title || title,
           url: location.href,
           pageDate,
+          unavailable: unavailableCount(),
         });
       } catch (error) {
         console.error('[Content] Error finding main image:', error);

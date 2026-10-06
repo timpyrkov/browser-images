@@ -44,6 +44,7 @@ export default {
   statusDownloaded: "downloaded",
   statusSkipped: "skipped",
   statusError: "error",
+  statusPartial: "Partial",
   summaryTotal: "Total",
   summaryDownloaded: "Downloaded",
   summarySkipped: "Skipped",
@@ -54,5 +55,5 @@ export default {
   filterFailed: "Failed",
   logEmptyHint: "Open image-detail tabs and click <strong>Download</strong> to start.",
   noticeLabel: "IMPORTANT:",
-  noticeText: "Browser Images can download many images and videos at once, which can take up a lot of disk space. Please keep an eye on your free disk space. Gallery websites can change their page layout at any time, which may stop some images or videos from downloading.",
+  noticeText: "Browser Images can download many images and videos at once, which can take up a lot of disk space. Please keep an eye on your free disk space. Gallery websites can change their page layout at any time, which may stop some images or videos from downloading. Videos embedded from other sites, such as YouTube, are not downloaded.",
 };

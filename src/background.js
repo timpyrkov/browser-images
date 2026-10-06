@@ -497,6 +497,9 @@ async function downloadAndSettle(image, targetFolder, skipDownloaded, throttle) 
   }
 }
 
+// Tooltip of a "Partial (x/y)" row; the row itself stays short.
+const PARTIAL_MESSAGE = 'Some items are videos embedded from other sites (e.g. YouTube) and cannot be downloaded.';
+
 function logItem(tab, status, extra = {}) {
   return {
     id: tab.id,
@@ -739,6 +742,11 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
     return;
   }
 
+  // Items found on the page that cannot be downloaded (e.g. videos embedded
+  // from YouTube). They count in every total shown, so progress reads
+  // "Downloading (5/13)" and ends "Partial (12/13)", never 12 then 13.
+  const unavailable = Number(response.unavailable) || 0;
+
   for (let i = 0; i < images.length; i++) {
     if (isCancelled()) break;
     const image = images[i];
@@ -747,7 +755,7 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
       filename: image.filename,
       thumbUrl: thumbUrl || image.imageUrl,
       count: i + 1,
-      total: images.length,
+      total: images.length + unavailable,
     }));
 
     const targetFolder = pickSubfolder(image.filename, galleryPath);
@@ -782,16 +790,26 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
     }
   }
 
-  const status = abandoned ? 'error'
+  let status = abandoned ? 'error'
     : counts.downloaded ? 'downloaded' : (counts.skipped ? 'skipped' : 'error');
+  let count = counts[status];
+  let total = images.length;
+  // Some items on the page could not be downloaded at all: "Partial (got/all)".
+  // Files already present count as got; videos the user chose to skip do not.
+  if (unavailable && status !== 'error') {
+    status = 'partial';
+    count = counts.downloaded + counts.skipped - droppedVideos;
+    total = images.length + unavailable;
+    lastMessage = PARTIAL_MESSAGE;
+  }
   broadcast('download-progress', logItem(tab, status, {
     title: response.title,
     filename: abandoned
       ? `${counts.downloaded}/${images.length} images — BLOCKED by the server, retry later`
       : allNames,
     thumbUrl: thumbUrl || images[0].imageUrl,
-    count: counts[status],
-    total: images.length,
+    count,
+    total,
     reason: lastReason,
     message: lastMessage,
   }));
@@ -811,6 +829,10 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
 
   for (const tab of tabs) {
     if (isCancelled()) break;
+    // Without the "tabs" permission the browser reports a tab's address only
+    // for sites in host_permissions, i.e. the supported galleries. Any other
+    // tab has no url and is simply not ours.
+    if (!tab.url) continue;
     try {
       const url = new URL(tab.url);
       // Match on the registered domain, not the bare hostname, so regional
@@ -818,9 +840,7 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
       const domain = typeof findGalleryDomain === 'function'
         ? findGalleryDomain(url.hostname)
         : null;
-      const isSelectedGallery = selectedGallery === 'custom'
-        ? !domain
-        : domain === selectedGallery;
+      const isSelectedGallery = domain === selectedGallery;
       const galleryPath = (domain && galleryPaths?.[domain]) || { images: folder || 'PIC', videos: folder || 'MOV' };
 
       console.log(`[Download] Tab ${tab.id}: host=${url.hostname}, domain=${domain}, selectedGallery=${isSelectedGallery}`);
@@ -897,6 +917,14 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
             await downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos,
               parser?.downloadPolicy);
           }
+        } else if (response && response.status === 'partial') {
+          // Found items, none downloadable (e.g. only a YouTube embed).
+          broadcast('download-progress', logItem(tab, 'partial', {
+            title: response.title,
+            count: response.count || 0,
+            total: response.total || 0,
+            message: PARTIAL_MESSAGE,
+          }));
         } else if (response && response.status === 'skipped') {
           console.log(`[Download] Skipped tab ${tab.id}: ${response.reason}`);
           broadcast('download-progress', logItem(tab, 'skipped', {

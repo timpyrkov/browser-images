@@ -1,6 +1,6 @@
 # Privacy Policy for Browser Images
 
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-05
 
 ## Summary
 
@@ -16,7 +16,7 @@ Nothing runs in the background or on its own. The extension only reads pages and
 
 ### Open tabs
 
-When you press **Download**, the extension lists the tabs in the current browser window and reads their address and title to decide which ones belong to the selected gallery. If you press **Close downloaded tabs**, it closes only the tabs whose downloads succeeded.
+When you press **Download**, the extension lists the tabs in the current browser window. The browser reveals the address and title only of tabs on the three supported gallery sites; the extension cannot see the address or title of any other tab. It uses them to decide which tabs belong to the selected gallery. If you press **Close downloaded tabs**, it closes only the tabs whose downloads succeeded.
 
 ### Gallery page content
 
@@ -75,7 +75,7 @@ All requests go directly from your browser to the gallery you are downloading fr
 ## Data the extension does **not** collect
 
 - No analytics, telemetry, crash reporting, or advertising identifiers
-- The extension does not access the browser's history database; it processes only the addresses and titles of currently open tabs after the user presses Download
+- The extension does not access the browser's history database; it processes only the addresses and titles of currently open tabs on the supported gallery sites, after the user presses Download
 - No bookmarks, passwords, or cookie values are read or sent to the developer
 - No data is sold, shared, or stored by the extension author
 
@@ -85,12 +85,13 @@ The extension uses current-tab information and website content only to provide i
 
 ## Permissions explained
 
-- **`tabs` / `activeTab`:** List the tabs in the current window, read their address and title to match the selected gallery, and close downloaded tabs when you ask.
+- **Host access to `*.artstation.com`, `*.deviantart.com` and `*.pinterest.com` only:** Run the gallery-detection script in tabs on these sites, read those tabs' address and title to match the selected gallery, and request gallery pages from the same sites. The extension has no access to any other website.
 - **`scripting`:** Inject the small gallery-detection script into matching tabs when you press Download.
-- **`downloads`:** Save images and videos to your `Downloads` folder, check the download history for duplicates, and track download progress for pacing.
+- **`downloads`:** Save images and videos to your `Downloads` folder (including from the galleries' own image servers), check the download history for duplicates, and track download progress for pacing.
 - **`storage`:** Save your preferences locally, and keep the current run's log in session storage (memory only) so it survives closing and reopening the panel.
-- **`<all_urls>`:** Run the detection script on gallery pages and request gallery pages and files, which live on several domains and file servers.
 - **`sidePanel`** (Chrome) / **sidebar** (Firefox, Opera): Show the extension's interface in the browser's side panel.
+
+The extension does not request the `tabs`, `activeTab` or all-websites (`<all_urls>`) permissions.
 
 ## Changes to this policy
 

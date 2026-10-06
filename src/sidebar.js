@@ -364,6 +364,10 @@ function formatStatus(entry) {
   if ((entry.status === 'downloading' || entry.status === 'scanning') && entry.total > 1) {
     return `${label} (${entry.count}/${entry.total})`;
   }
+  // Got some (or none) of the items on the page: always "Partial (5/8)".
+  if (entry.status === 'partial') {
+    return `${label} (${entry.count || 0}/${entry.total || 0})`;
+  }
   if (entry.count > 0) {
     return `${label} (${entry.count})`;
   }
@@ -376,7 +380,7 @@ function renderLog() {
 
   let filtered = state.log;
   if (state.filter !== 'all') {
-    filtered = state.log.filter((entry) => entry.status === state.filter);
+    filtered = state.log.filter((entry) => countedAs(entry) === state.filter);
   }
 
   if (filtered.length === 0) {
@@ -425,6 +429,8 @@ function renderLog() {
     const why = entry.status === 'error' || entry.status === 'skipped' ? (entry.message || entry.reason || '') : '';
     filename.textContent = entry.filename || why;
     if (why) row.title = why;
+    // A partial row stays short ("Partial (5/8)"); the explanation is a tooltip.
+    if (entry.status === 'partial' && entry.message) row.title = entry.message;
 
     info.appendChild(title);
     info.appendChild(filename);
@@ -448,10 +454,16 @@ function renderLog() {
   });
 }
 
+/** Summary bucket of a row: a partial download is listed under Failed. */
+function countedAs(entry) {
+  return entry.status === 'partial' ? 'error' : entry.status;
+}
+
 function updateCounts() {
   const counts = { downloaded: 0, skipped: 0, error: 0 };
   state.log.forEach((e) => {
-    if (counts[e.status] !== undefined) counts[e.status]++;
+    const bucket = countedAs(e);
+    if (counts[bucket] !== undefined) counts[bucket]++;
   });
   $('countTotal').textContent = state.log.length;
   $('countDownloaded').textContent = counts.downloaded;

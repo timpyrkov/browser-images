@@ -44,6 +44,7 @@ export default {
   statusDownloaded: "scaricata",
   statusSkipped: "saltata",
   statusError: "errore",
+  statusPartial: "Parziale",
   summaryTotal: "Totale",
   summaryDownloaded: "Scaricate",
   summarySkipped: "Saltate",
@@ -54,5 +55,5 @@ export default {
   filterFailed: "Fallite",
   logEmptyHint: "Apri le schede con le immagini e fai clic su <strong>Scarica</strong> per iniziare.",
   noticeLabel: "IMPORTANTE:",
-  noticeText: "Browser Images può scaricare molte immagini e video alla volta, occupando molto spazio su disco. Tieni d’occhio lo spazio libero sul disco. I siti di gallerie possono cambiare il layout delle pagine in qualsiasi momento, impedendo il download di alcune immagini o video.",
+  noticeText: "Browser Images può scaricare molte immagini e video alla volta, occupando molto spazio su disco. Tieni d’occhio lo spazio libero sul disco. I siti di gallerie possono cambiare il layout delle pagine in qualsiasi momento, impedendo il download di alcune immagini o video. I video incorporati da altri siti, come YouTube, non vengono scaricati.",
 };

@@ -2,7 +2,7 @@
 // Central place for extension default settings
 
 const DEFAULT_SETTINGS = {
-  // Fallback folder for custom/unknown domains (relative to the browser's Downloads directory).
+  // Fallback folder when a gallery has no subfolders configured (relative to the browser's Downloads directory).
   folder: '',
 
   // Per-gallery download subfolders for images and videos, relative to the

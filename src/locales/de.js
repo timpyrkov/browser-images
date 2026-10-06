@@ -44,6 +44,7 @@ export default {
   statusDownloaded: "geladen",
   statusSkipped: "übersprungen",
   statusError: "Fehler",
+  statusPartial: "Teilweise",
   summaryTotal: "Gesamt",
   summaryDownloaded: "Geladen",
   summarySkipped: "Übersprungen",
@@ -54,5 +55,5 @@ export default {
   filterFailed: "Fehlgeschlagen",
   logEmptyHint: "Öffne Tabs mit Bildern und klicke auf <strong>Herunterladen</strong>, um zu starten.",
   noticeLabel: "WICHTIG:",
-  noticeText: "Browser Images kann viele Bilder und Videos auf einmal herunterladen, was viel Speicherplatz belegen kann. Bitte behalte den freien Speicherplatz im Blick. Galerie-Websites können ihr Seitenlayout jederzeit ändern, wodurch manche Bilder oder Videos nicht mehr heruntergeladen werden können.",
+  noticeText: "Browser Images kann viele Bilder und Videos auf einmal herunterladen, was viel Speicherplatz belegen kann. Bitte behalte den freien Speicherplatz im Blick. Galerie-Websites können ihr Seitenlayout jederzeit ändern, wodurch manche Bilder oder Videos nicht mehr heruntergeladen werden können. Von anderen Websites eingebettete Videos, etwa von YouTube, werden nicht heruntergeladen.",
 };

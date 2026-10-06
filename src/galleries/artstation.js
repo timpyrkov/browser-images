@@ -26,6 +26,10 @@
     'signup', 'settings', 'messages', 'notifications', 'community', 'studios', 'guides', 'pro',
     'subscribe', 'shop', 'terms', 'privacy', 'magazine', 'events']);
 
+  // Items the last scan found but cannot download (videos embedded from
+  // YouTube, Vimeo, ...), so the row can read "Partial (5/8)".
+  let lastUnavailable = 0;
+
   const FETCH_GAP_MS = 400;          // pause between JSON requests
   const MAX_ATTEMPTS = 3;            // per request, on 403/429
   const BACKOFF_BASE_MS = 5000;      // 5 s, 10 s, ...
@@ -154,6 +158,9 @@
     const title = project.title || '';
     const username = (project.user && project.user.username) || 'artstation';
     const media = [];
+    // Videos embedded from other sites (YouTube, Vimeo, ...) are not hosted by
+    // ArtStation and are not downloaded; counted so the row can say why.
+    media.externalVideos = 0;
     for (const asset of project.assets || []) {
       if (asset.asset_type === 'image' && asset.has_image && asset.image_url) {
         media.push({ imageUrl: fullSizeImageUrl(asset.image_url), kind: 'image', title });
@@ -170,6 +177,7 @@
           console.warn('[ArtStation] Could not read video clip', embed, error.message);
         }
       } else if (asset.asset_type !== 'cover') {
+        if (asset.has_embedded_player || asset.asset_type === 'video') media.externalVideos++;
         console.log(`[ArtStation] Skipping ${asset.asset_type} asset ${asset.id} (not hosted by ArtStation)`);
       }
     }
@@ -195,16 +203,25 @@
       extractPageDate(doc) {
         return helpers.getPageDate ? helpers.getPageDate(doc) : null;
       },
+      /** Items the last extractImageUrls() found but could not download. */
+      unavailableCount() {
+        return lastUnavailable;
+      },
 
       async extractImageUrls(doc, href, options = {}) {
         const hash = projectHashFromUrl(href);
         if (!hash) return [];
+        lastUnavailable = 0;
         try {
           const origin = new URL(href).origin;
           const project = await getJson(`${origin}/projects/${hash}.json`, options);
           const media = await projectMedia(project, (url) => getText(url, options));
           const pageDate = (project.published_at || '').slice(0, 10) || null;
+          lastUnavailable = media.externalVideos;
           if (media.length) return media.map((item) => ({ ...item, pageDate }));
+          // The project data is authoritative: only embedded videos, so do not
+          // guess from the page; the row reads "Partial (0/n)".
+          if (media.externalVideos) return [];
         } catch (error) {
           console.warn('[ArtStation] Project JSON unavailable; using rendered project assets:', error.message);
         }
@@ -232,6 +249,7 @@
         const stopped = typeof options.shouldStop === 'function' ? options.shouldStop : () => false;
         const fetchText = (u) => getText(u, options);
         const images = [];
+        let unavailable = 0;
         let done = 0;
         let total = 0;
 
@@ -259,6 +277,7 @@
               await sleep(FETCH_GAP_MS);
               const project = await getJson(`${url.origin}/projects/${summary.hash_id}.json`, options);
               const media = await projectMedia(project, fetchText);
+              unavailable += media.externalVideos;
               images.push(...media.map((item) => ({ ...item, pageDate: published || null })));
             } catch (error) {
               console.warn(`[ArtStation] Skipping project ${summary.hash_id}:`, error.message);
@@ -269,7 +288,7 @@
           const last = (projects[projects.length - 1].published_at || '').slice(0, 10);
           if (!paginate || (maxDate && last && last < maxDate) || done >= total) break;
         }
-        return { images };
+        return { images, unavailable };
       },
     };
   }

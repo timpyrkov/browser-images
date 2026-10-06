@@ -44,6 +44,7 @@ export default {
   statusDownloaded: "已下载",
   statusSkipped: "已跳过",
   statusError: "错误",
+  statusPartial: "部分完成",
   summaryTotal: "总计",
   summaryDownloaded: "已下载",
   summarySkipped: "已跳过",
@@ -54,5 +55,5 @@ export default {
   filterFailed: "失败",
   logEmptyHint: "打开图片标签页，然后点击<strong>下载</strong>开始。",
   noticeLabel: "重要提示：",
-  noticeText: "Browser Images 可以一次下载大量图片和视频，可能会占用大量磁盘空间。请留意磁盘剩余空间。图库网站可能随时更改页面布局，这可能导致部分图片或视频无法下载。",
+  noticeText: "Browser Images 可以一次下载大量图片和视频，可能会占用大量磁盘空间。请留意磁盘剩余空间。图库网站可能随时更改页面布局，这可能导致部分图片或视频无法下载。从其他网站（如 YouTube）嵌入的视频不会被下载。",
 };
