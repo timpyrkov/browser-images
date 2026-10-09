@@ -16,7 +16,7 @@ downloaded, skipped or failed.
 
 | Gallery | Single page | Multi-image / video | Whole gallery |
 |---|---|---|---|
-| **ArtStation** | Artwork at full size (up to 4K) | All images and ArtStation-hosted video clips | Artist portfolio |
+| **ArtStation** | Artwork at full size (up to 4K) | All images and ArtStation-hosted video clips | Artist portfolio or one of its albums |
 | **DeviantArt** | Deviation at full size | Carousels and videos | User gallery, favourites, search and tag pages |
 | **Pinterest** | Pin image | Animated and video pins, multi-video pins | Board pins (stops before "more ideas") |
 
@@ -64,7 +64,9 @@ Third-party embeds (e.g. YouTube videos inside an ArtStation project) are skippe
    - **Yandex Browser:** click the toolbar icon for the popup.
 3. Choose the gallery (ArtStation, DeviantArt or Pinterest). Only tabs from that gallery
    are processed.
-4. Optionally adjust the settings (gear icon): folders, delay, max date, whole-gallery mode.
+4. Optionally adjust the settings (gear icon): folders, delay, whole-gallery mode and the
+   other options. Each gallery keeps its own settings, so changing them while DeviantArt is
+   selected does not affect ArtStation or Pinterest. The max date in the toolbar is shared.
 5. Press **Download**. Press **Stop** to cancel a run.
 
 ---
@@ -146,7 +148,7 @@ and maintenance before they can be enabled again:
   the browser's Downloads list.
 - **Pinterest boards** download what the board page has rendered; very long boards may
   need scrolling first.
-- **ArtStation search pages** are not supported yet; artist portfolios are.
+- **ArtStation search pages** are not supported yet; artist portfolios and albums are.
 - Settings are stored locally in the browser and are not synced across devices.
 
 ---

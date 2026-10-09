@@ -32,19 +32,26 @@
   ];
 
   const PINIMG_HOST = /(^|\.)pinimg\.com$/i;
-  const PINTEREST_VIDEO_HOST = /(^|\.)pinterest\.com$/i;
 
   function resolve(url) {
     return helpers.resolveImageUrl ? helpers.resolveImageUrl(url) : url || null;
   }
 
+  /** Pinterest media file: https on *.pinimg.com (i.pinimg.com, v1.pinimg.com, ...). */
   function isPinMediaUrl(url) {
     try {
-      const host = new URL(url).hostname.toLowerCase();
-      return PINIMG_HOST.test(host) || PINTEREST_VIDEO_HOST.test(host);
+      const parsed = new URL(url);
+      return parsed.protocol === 'https:' && PINIMG_HOST.test(parsed.hostname);
     } catch (error) {
       return false;
     }
+  }
+
+  /** Pinterest MP4: a pinimg host, a /videos/ path and an .mp4 file. */
+  function isPinVideoUrl(url) {
+    if (!isPinMediaUrl(url)) return false;
+    const { pathname } = new URL(url);
+    return pathname.startsWith('/videos/') && /\.mp4$/i.test(pathname);
   }
 
   /** The <img> for a hook element, which is usually a wrapping <div>. */
@@ -93,16 +100,22 @@
     return urls;
   }
 
-  /** Pinterest video URLs appear in the page HTML even in the app-shell state. */
+  /**
+   * Pinterest video URLs appear in the page HTML even in the app-shell state.
+   * The HTML also holds text users write (descriptions, comments, links), so
+   * the pattern pins the host itself - a run of host characters straight
+   * after https:// - and every match is parsed and checked again: a text such
+   * as https://evil.example/x?.pinimg.com/videos/a.mp4 is not a pinimg URL.
+   */
   function videoUrlsFromHtml(doc) {
     const html = (doc.documentElement && (doc.documentElement.outerHTML || doc.documentElement.innerHTML)) || '';
     const urls = [];
     const seen = new Set();
-    const regex = /https?:\/\/[^"'\s<>]+\.pinimg\.com\/videos\/[^"'\s<>]+\.mp4/g;
+    const regex = /https:\/\/(?:[a-z0-9-]+\.)*pinimg\.com\/videos\/[^"'\s<>\\]+?\.mp4/gi;
     let match;
     while ((match = regex.exec(html)) !== null) {
       const url = match[0];
-      if (!seen.has(url)) {
+      if (isPinVideoUrl(url) && !seen.has(url)) {
         seen.add(url);
         urls.push(url);
       }
@@ -226,6 +239,8 @@
       // pinimg.com refuses bursts, so wait for each file to finish before the
       // next one and never go faster than this, whatever the global delay.
       downloadPolicy: { awaitCompletion: true, minDelaySeconds: 1.5 },
+      // Never fall back to an og:image or page image from another host.
+      disableGenericFallback: true,
       isMainImageView(hostname, pathname) {
         return /(^|\.)pinterest\./i.test(hostname || '') && isPinPage(pathname);
       },
@@ -248,7 +263,7 @@
         // best quality for each distinct video.
         const domVideos = closeupVideoUrls(doc);
         const htmlVideos = videoUrlsFromHtml(doc);
-        const allVideos = [...new Set([...domVideos, ...htmlVideos])];
+        const allVideos = [...new Set([...domVideos, ...htmlVideos])].filter(isPinVideoUrl);
         const bestVideos = uniqueBestVideoUrls(allVideos);
         if (bestVideos.length) {
           return bestVideos.map((url) => ({ imageUrl: url, kind: 'video', title }));

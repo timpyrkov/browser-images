@@ -44,8 +44,19 @@
   }
 
   function profileNameFromPath(pathname) {
-    const m = String(pathname || '').match(/^\/([A-Za-z0-9_-]+)\/?$/);
-    return m && !RESERVED.has(m[1].toLowerCase()) ? m[1] : null;
+    const portfolio = portfolioFromPath(pathname);
+    return portfolio ? portfolio.username : null;
+  }
+
+  /**
+   * An artist's portfolio (/{name}, /{name}/albums/all) or one of its albums
+   * (/{name}/albums/{id}). Both list projects through the same endpoint; an
+   * album only adds album_id to it.
+   */
+  function portfolioFromPath(pathname) {
+    const m = String(pathname || '').match(/^\/([A-Za-z0-9_-]+)(?:\/albums\/(\d+|all))?\/?$/);
+    if (!m || RESERVED.has(m[1].toLowerCase())) return null;
+    return { username: m[1], albumId: m[2] && m[2] !== 'all' ? m[2] : null };
   }
 
   function sleep(ms) {
@@ -84,14 +95,28 @@
     return String(url || '').replace(/\/(?:small|medium|large)\//, '/4k/');
   }
 
-  function isArtworkImageUrl(url) {
+  /** https URL on ArtStation's own hosts (www, cdn, cdna, cdnb, ...). */
+  function isArtStationUrl(url) {
     try {
       const parsed = new URL(url);
-      return /(^|\.)artstation\.com$/i.test(parsed.hostname)
-        && parsed.pathname.includes('/p/assets/images/images/');
+      return parsed.protocol === 'https:' && isArtStationHost(parsed.hostname);
     } catch (error) {
       return false;
     }
+  }
+
+  function isArtworkImageUrl(url) {
+    return isArtStationUrl(url) && new URL(url).pathname.includes('/p/assets/images/images/');
+  }
+
+  /** ArtStation-hosted clip file, e.g. https://cdn.artstation.com/p/video_sources/.../clip.mp4 */
+  function isClipVideoUrl(url) {
+    return isArtStationUrl(url) && /\.mp4$/i.test(new URL(url).pathname);
+  }
+
+  /** Video clip player page, served from ArtStation itself (www.artstation.com/api/v2/animation/...). */
+  function isClipPlayerUrl(url) {
+    return isArtStationUrl(url) && new URL(url).pathname.startsWith('/api/v2/animation/video_clips/');
   }
 
   /**
@@ -115,7 +140,7 @@
       }
       for (const source of asset.querySelectorAll ? asset.querySelectorAll('video source[src], video[src]') : []) {
         const url = source.currentSrc || source.src || source.getAttribute?.('src');
-        if (!url || !/\.mp4(?:[?#]|$)/i.test(url) || seen.has(url)) continue;
+        if (!url || !isClipVideoUrl(url) || seen.has(url)) continue;
         seen.add(url);
         media.push({ imageUrl: url, kind: 'video', title: source.title || '' });
       }
@@ -142,12 +167,20 @@
     return best ? best.src : null;
   }
 
+  function sanitizeName(value) {
+    const naming = global && global.MEDIA_NAMING;
+    const clean = naming ? naming.sanitizeFilename(value) : String(value || '').replace(/[^A-Za-z0-9._-]/g, '_');
+    return clean || 'artstation';
+  }
+
+  /** Clip file name, sanitized: a decoded %2F must not become a folder. */
   function basename(url) {
+    let name = '';
     try {
-      return decodeURIComponent(new URL(url).pathname.split('/').pop()) || 'video.mp4';
-    } catch (error) {
-      return 'video.mp4';
-    }
+      name = decodeURIComponent(new URL(url).pathname.split('/').pop());
+    } catch (error) { /* fall through to the default */ }
+    const clean = sanitizeName(name);
+    return /\.mp4$/i.test(clean) ? clean : 'video.mp4';
   }
 
   /**
@@ -162,16 +195,18 @@
     // ArtStation and are not downloaded; counted so the row can say why.
     media.externalVideos = 0;
     for (const asset of project.assets || []) {
-      if (asset.asset_type === 'image' && asset.has_image && asset.image_url) {
+      if (asset.asset_type === 'image' && asset.has_image && isArtStationUrl(asset.image_url)) {
         media.push({ imageUrl: fullSizeImageUrl(asset.image_url), kind: 'image', title });
       } else if (asset.asset_type === 'video_clip') {
         const embed = embedUrlFromPlayer(asset.player_embedded);
-        if (!embed) continue;
+        if (!embed || !isClipPlayerUrl(embed)) continue;
         try {
-          const src = bestClipSource(await getTextFn(embed));
+          const found = bestClipSource(await getTextFn(embed));
+          const src = found ? new URL(found, embed).href : null;
           // Clip files have generic names (a.mp4), so prefix artist and asset.
-          if (src) {
-            media.push({ imageUrl: src, kind: 'video', title, filename: `${username}_${asset.id}_${basename(src)}` });
+          if (src && isClipVideoUrl(src)) {
+            const prefix = sanitizeName(`${username}_${asset.id}`);
+            media.push({ imageUrl: src, kind: 'video', title, filename: `${prefix}_${basename(src)}` });
           }
         } catch (error) {
           console.warn('[ArtStation] Could not read video clip', embed, error.message);
@@ -235,14 +270,17 @@
       },
 
       /**
-       * Walk the artist's portfolio and return every project's media directly
-       * (not links): the projects are fetched here, inside the page, because
-       * a background fetch would not carry the Cloudflare clearance.
+       * Walk the artist's portfolio, or one album of it, and return every
+       * project's media directly (not links): the projects are fetched here,
+       * inside the page, because a background fetch would not carry the
+       * Cloudflare clearance.
        */
       async extractIndexLinks(doc, href, options = {}) {
         const url = new URL(href);
-        const username = profileNameFromPath(url.pathname);
-        if (!username) return [];
+        const portfolio = portfolioFromPath(url.pathname);
+        if (!portfolio) return [];
+        const { username, albumId } = portfolio;
+        const albumParam = albumId ? `&album_id=${albumId}` : '';
         const paginate = options.paginate !== false;
         const maxDate = options.maxDate || '';
         const report = typeof options.onProgress === 'function' ? options.onProgress : () => {};
@@ -256,7 +294,7 @@
         for (let page = 1; !stopped(); page++) {
           let list;
           try {
-            list = await getJson(`${url.origin}/users/${username}/projects.json?page=${page}`, options);
+            list = await getJson(`${url.origin}/users/${username}/projects.json?page=${page}${albumParam}`, options);
           } catch (error) {
             // Keep what was collected; a later page failing should not void it.
             console.warn(`[ArtStation] Portfolio page ${page} unavailable:`, error.message);
@@ -269,6 +307,10 @@
             if (stopped()) break;
             done++;
             const published = (summary.published_at || '').slice(0, 10);
+            if (!/^[A-Za-z0-9]+$/.test(String(summary.hash_id || ''))) {
+              report(done, total);
+              continue;
+            }
             if (maxDate && published && published < maxDate) {
               report(done, total);
               continue;
@@ -286,7 +328,10 @@
           }
           // Newest first: once a page ends before the cutoff, later pages are older still.
           const last = (projects[projects.length - 1].published_at || '').slice(0, 10);
-          if (!paginate || (maxDate && last && last < maxDate) || done >= total) break;
+          // Albums follow the artist's own arrangement, not dates, so they are
+          // always walked to the end; old projects are still skipped above.
+          const pastCutoff = !albumId && maxDate && last && last < maxDate;
+          if (!paginate || pastCutoff || done >= total) break;
         }
         return { images, unavailable };
       },
@@ -297,6 +342,7 @@
     global.registerGallery(createArtStationParser());
   }
   global.ARTSTATION_INTERNALS = {
-    projectMedia, bestClipSource, fullSizeImageUrl, profileNameFromPath, isArtworkImageUrl, renderedProjectMedia,
+    projectMedia, bestClipSource, fullSizeImageUrl, profileNameFromPath, portfolioFromPath, isArtworkImageUrl, renderedProjectMedia,
+    isClipVideoUrl, isClipPlayerUrl,
   };
 })(typeof self !== 'undefined' ? self : this);

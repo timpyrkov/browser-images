@@ -1,6 +1,6 @@
 # Privacy Policy for Browser Images
 
-**Last updated:** 2026-10-05
+**Last updated:** 2026-10-07
 
 ## Summary
 
@@ -68,9 +68,11 @@ All requests go directly from your browser to the gallery you are downloading fr
 
 | Gallery | What is requested |
 |---|---|
-| ArtStation | The artwork's and artist's public data (`/projects/…json`, `/users/…/projects.json`), video-clip player pages, and the image/video files (`cdn*.artstation.com`). Requested from inside your ArtStation tab. |
-| DeviantArt | The individual deviation pages of a gallery or search page, and the image/video files. |
+| ArtStation | The artwork's and artist's public data (`/projects/…json`, `/users/…/projects.json`), video-clip player pages, and the image/video files (`*.artstation.com`, e.g. `cdna.artstation.com`). Requested from inside your ArtStation tab. |
+| DeviantArt | The individual deviation pages of a gallery or search page (`www.deviantart.com`), and the image/video files (`*.wixmp.com`, legacy `*.deviantart.net`). |
 | Pinterest | Only the image/video files (`*.pinimg.com`) already shown on the pin or board page. |
+
+Every file address is checked before anything is requested: it must use `https` and belong to the file servers of the gallery the tab is on, as listed above. An address that points anywhere else, for example a link someone typed into a pin description, is refused and never contacted. Saved files always get a plain image or video file name inside your chosen download folder.
 
 ## Data the extension does **not** collect
 

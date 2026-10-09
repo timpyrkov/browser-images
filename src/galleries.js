@@ -100,13 +100,46 @@
     return Object.keys(GALLERY_PARSERS).find((domain) => matchesDomain(hostname, domain)) || null;
   }
 
+  /*
+   * Hosts each gallery's media files are served from. A URL found on a page is
+   * only ever downloaded when it is https and its host is on the list of the
+   * gallery the tab belongs to, so text a user wrote on a gallery page can
+   * never point a download at another site or an intranet address.
+   * Observed in real downloads:
+   *   ArtStation  cdn(a|b).artstation.com/p/assets/..., cdn.artstation.com/p/video_sources/...
+   *   DeviantArt  images-wixmp-<id>.wixmp.com/f/... (images), wixmp-<id>.wixmp.com/v/mp4/... (videos);
+   *               deviantart.net for legacy files
+   *   Pinterest   i.pinimg.com/{236x,736x,originals}/..., v1.pinimg.com/videos/..., i.pinimg.com/videos/...
+   */
+  const MEDIA_HOSTS = {
+    'artstation.com': ['artstation.com'],
+    'deviantart.com': ['wixmp.com', 'deviantart.net'],
+    'pinterest.com': ['pinimg.com'],
+  };
+
+  /** https URL on one of `galleryDomain`'s media hosts (any gallery when omitted). */
+  function isAllowedMediaUrl(rawUrl, galleryDomain) {
+    if (typeof rawUrl !== 'string') return false;
+    let url;
+    try {
+      url = new URL(rawUrl);
+    } catch (error) {
+      return false;
+    }
+    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return false;
+    const hosts = galleryDomain ? MEDIA_HOSTS[galleryDomain] || [] : [].concat(...Object.values(MEDIA_HOSTS));
+    return hosts.some((host) => matchesDomain(url.hostname, host));
+  }
+
   global.registerGallery = register;
   global.findGalleryDomain = findGalleryDomain;
+  global.isAllowedMediaUrl = isAllowedMediaUrl;
   global.GALLERY_HELPERS = {
     getPageDate,
     resolveImageUrl,
     matchesDomain,
     findGalleryDomain,
+    isAllowedMediaUrl,
   };
 
   // ArtStation, DeviantArt and Pinterest are registered by their dedicated

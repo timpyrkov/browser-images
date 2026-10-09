@@ -36,7 +36,14 @@ if (typeof browser === 'undefined') {
     try {
       reply = await chrome.runtime.sendMessage({ command: 'page-fetch', url });
     } catch (error) { /* no answer from the background: use a direct fetch */ }
-    if (!reply || reply.error) return fetch(url, { credentials: 'include' });
+    // A rejection (e.g. a cross-origin URL) is final; only a background that
+    // did not answer at all falls back, and then still only to this origin.
+    if (reply && reply.error) throw new Error(reply.error);
+    if (!reply) {
+      const target = new URL(url, location.href);
+      if (target.protocol !== 'https:' || target.origin !== location.origin) throw new Error('Cross-origin page fetch rejected');
+      return fetch(target.href, { credentials: 'include' });
+    }
     return {
       ok: reply.ok,
       status: reply.status,
@@ -94,54 +101,28 @@ function parseIsoDate(value) {
   return isNaN(date) ? null : date.toISOString().split('T')[0];
 }
 
-function getLargestVisibleImage() {
-  const images = Array.from(document.images)
-    .filter((img) => img.complete && img.naturalWidth > 300 && img.naturalHeight > 150)
-    .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight);
-  return resolveImageUrl(images[0]?.currentSrc || images[0]?.src);
-}
-
-// Gallery detection and image extraction logic
+// Media URLs come only from the gallery's own parser. There is deliberately no
+// generic fallback (og:image, largest image on the page): those can point
+// anywhere, and every supported gallery has a parser that knows its media.
 async function getMainImageUrls(options = {}) {
-  const hostname = location.hostname;
-  const urls = [];
-
-  // 1. Site-specific parser from the registry
-  const parser = findParser(hostname);
-  if (parser && typeof parser.extractImageUrls === 'function') {
-    const parsed = await parser.extractImageUrls(document, location.href, options);
-    if (parsed && parsed.length) urls.push(...parsed);
-  } else if (parser && typeof parser.extractImageUrl === 'function') {
-    const single = parser.extractImageUrl(document);
-    if (single) urls.push(single);
-  }
-
-  if (urls.length) return urls;
-  if (parser?.disableGenericFallback) return [];
-
-  // 2. Open Graph fallback
-  const ogImage = resolveImageUrl(document.querySelector("meta[property='og:image']")?.content);
-  if (ogImage) return [ogImage];
-
-  // 3. Largest visible image fallback
-  const largest = getLargestVisibleImage();
-  if (largest) return [largest];
-
-  return [];
+  const parser = findParser(location.hostname);
+  if (!parser || typeof parser.extractImageUrls !== 'function') return [];
+  const parsed = await parser.extractImageUrls(document, location.href, options);
+  return parsed && parsed.length ? parsed : [];
 }
 
 // Helper: Determine if this is a main image view (not a gallery) based on URL structure
 function isMainImageViewUrl(hostname, pathname) {
   const parser = findParser(hostname);
-  if (!parser) return true; // Unknown domains are allowed; the gallery selector handles them.
-  return parser.isMainImageView(hostname, pathname);
+  return !!parser && parser.isMainImageView(hostname, pathname);
 }
 
-// Allowed image/media extensions we preserve when present in the URL.
+// Allowed image/media extensions we preserve when present in the URL. No SVG
+// or ICO: SVG can carry script, and neither is gallery artwork.
 // `var` (not const): background.js re-injects this file on every scan, and a
 // top-level const would throw on redeclaration in the same isolated world.
 var VALID_EXTENSIONS = new Set([
-  'jpg', 'jpeg', 'gif', 'png', 'avif', 'webp', 'tif', 'tiff', 'bmp', 'svg', 'ico', 'heic', 'heif', 'jfif', 'pjpeg', 'pjp', 'mp4', 'webm', 'mov', 'mkv'
+  'jpg', 'jpeg', 'gif', 'png', 'avif', 'webp', 'tif', 'tiff', 'bmp', 'heic', 'heif', 'jfif', 'pjpeg', 'pjp', 'mp4', 'webm', 'mov', 'mkv'
 ]);
 
 function normalizeExtension(ext) {
@@ -180,8 +161,9 @@ function extractImageFilename(imageUrl) {
       name = `${base}.${normalized}`;
     }
 
-    // Strip characters that are illegal in common filesystems.
-    name = name.replace(/[<>:"|?*\x00-\x1f]/g, '');
+    // Strip path separators (a decoded %2F) and characters that are illegal
+    // in common filesystems, and never start with a dot.
+    name = name.replace(/[\\/<>:"|?*\x00-\x1f\x7f]/g, '_').replace(/^[._]+/, '');
     if (!name) {
       name = `image_${Date.now()}.jpg`;
     }
@@ -196,7 +178,6 @@ function inferExtensionFromUrl(url) {
   if (path.includes('.png')) return 'png';
   if (path.includes('.gif')) return 'gif';
   if (path.includes('.webp')) return 'webp';
-  if (path.includes('.svg')) return 'svg';
   if (path.includes('.avif')) return 'avif';
   if (path.includes('.webm')) return 'webm';
   if (path.includes('.mp4')) return 'mp4';
@@ -270,6 +251,8 @@ function isIndexViewUrl(hostname, pathname) {
 if (!self.__BI_CONTENT_LISTENER__) {
   self.__BI_CONTENT_LISTENER__ = true;
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Commands come only from this extension's background.
+  if (!request || sender?.id !== chrome.runtime.id || sender.tab) return false;
   if (request.command === 'cancel-harvest') {
     self.__BI_HARVEST_CANCELLED__ = true;
     sendResponse({ status: 'cancelling' });

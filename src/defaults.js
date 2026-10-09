@@ -29,18 +29,18 @@ const DEFAULT_SETTINGS = {
   rateLimit: 0.5,
 
   // Skip images already present in the browser's download history.
-  // Shared across all galleries, like rateLimit.
   skipDownloaded: true,
 
   // Download the gallery's smaller preview rendition instead of the full-size
-  // file. Shared across all galleries; currently honoured by DeviantArt.
+  // file. Currently honoured by DeviantArt.
   preferPreview: false,
 
   // Download only images, leaving videos (mp4/webm/...) alone.
   skipVideos: false,
 
   // Expand a gallery / search index tab into its individual deviations and
-  // download each of them. Honoured by DeviantArt and Pinterest boards.
+  // download each of them. Honoured by DeviantArt galleries, Pinterest boards
+  // and ArtStation portfolios / albums.
   expandGalleries: false,
 
   // While expanding, drive the index page's own "Next" control to reach
@@ -52,3 +52,24 @@ const DEFAULT_SETTINGS = {
   // Kept modest: concurrent bursts are what an adaptive rate limiter reacts to.
   batchSize: 10,
 };
+
+/*
+ * The Settings panel is per gallery: each gallery keeps its own copy of these
+ * values in storage.local.gallerySettings[domain], starting from the same
+ * defaults above. Up to 1.1.0 they were single shared keys; those old values
+ * are still read as a fallback, so nobody loses their choices on update.
+ */
+const GALLERY_SETTING_KEYS = ['rateLimit', 'skipDownloaded', 'preferPreview', 'skipVideos',
+  'expandGalleries', 'galleryPaginate', 'batchSize'];
+
+/** One gallery's settings: its own value, else the old shared value, else the default. */
+function gallerySettingsFor(stored, gallery) {
+  const own = (stored && stored.gallerySettings && stored.gallerySettings[gallery]) || {};
+  const settings = {};
+  for (const key of GALLERY_SETTING_KEYS) {
+    settings[key] = own[key] ?? (stored ? stored[key] : undefined) ?? DEFAULT_SETTINGS[key];
+  }
+  return settings;
+}
+
+self.GALLERY_SETTINGS = { keys: GALLERY_SETTING_KEYS, forGallery: gallerySettingsFor };

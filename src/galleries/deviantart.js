@@ -163,17 +163,31 @@
       .sort((a, b) => (b.h || 0) - (a.h || 0) || (b.f || 0) - (a.f || 0))[0];
   }
 
+  /**
+   * DeviantArt media file: https on its Wix Media Platform hosts
+   * (images-wixmp-<id>.wixmp.com for images, wixmp-<id>.wixmp.com for videos)
+   * or the legacy deviantart.net file hosts.
+   */
+  function isDeviantArtMediaUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'https:' && /(^|\.)(wixmp\.com|deviantart\.net)$/i.test(parsed.hostname);
+    } catch (error) {
+      return false;
+    }
+  }
+
   /** One naming-pipeline item for a deviation's own media or an extra file. */
   function mediaItem(media, preferPreview) {
     if (!media) return null;
     const video = bestVideoRendition(media);
     if (video) {
-      return { url: video.b, kind: 'video', width: video.w, height: video.h };
+      return isDeviantArtMediaUrl(video.b) ? { url: video.b, kind: 'video', width: video.w, height: video.h } : null;
     }
     const type = pickImageType(media, preferPreview);
     if (!type) return null;
     const url = renditionUrl(media, type);
-    if (!url) return null;
+    if (!url || !isDeviantArtMediaUrl(url)) return null;
     const rendition = renditionOf(media, type) || {};
     return {
       url,
@@ -372,7 +386,7 @@
    * end is what identifies the deviation.
    */
   function deviationHref(href, owner) {
-    const match = /^https?:\/\/(?:www\.)?deviantart\.com\/([^/?#]+)\/art\/[^/?#]+-\d+$/.exec(String(href || ''));
+    const match = /^https:\/\/(?:www\.)?deviantart\.com\/([^/?#]+)\/art\/[^/?#]+-\d+$/.exec(String(href || ''));
     if (!match) return null;
     if (owner && match[1].toLowerCase() !== owner) return null;
     return href;
@@ -634,7 +648,7 @@
       // Full DeviantArt artwork files use the images-wixmp host and /f/ path.
       // This excludes st.deviantart.net/default1200x630.png, avatars, logos,
       // ads and gallery thumbnails.
-      return /(^|\.)wixmp\.com$/i.test(parsed.hostname) && parsed.pathname.startsWith('/f/');
+      return parsed.protocol === 'https:' && /(^|\.)wixmp\.com$/i.test(parsed.hostname) && parsed.pathname.startsWith('/f/');
     } catch (error) {
       return false;
     }

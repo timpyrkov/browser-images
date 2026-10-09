@@ -64,14 +64,34 @@ function setRichText(el, value) {
   }));
 }
 
+// Settings panel values kept per gallery (see defaults.js). Same defaults for
+// every gallery; the fallback mirrors defaults.js in case it failed to load.
+const GALLERY_SETTINGS = window.GALLERY_SETTINGS || {
+  keys: ['rateLimit', 'skipDownloaded', 'preferPreview', 'skipVideos', 'expandGalleries', 'galleryPaginate', 'batchSize'],
+  forGallery(stored, gallery) {
+    const own = stored?.gallerySettings?.[gallery] || {};
+    return Object.fromEntries(this.keys.map((k) => [k, own[k] ?? stored?.[k] ?? DEFAULT_SETTINGS[k]]));
+  },
+};
+
 async function loadSettings() {
   const defaults = {
     ...DEFAULT_SETTINGS,
     uiLang: detectBrowserLanguage(),
     maxDate: '',
   };
-  const stored = await brw.storage.local.get(Object.keys(defaults));
+  const stored = await brw.storage.local.get([...Object.keys(defaults), 'gallerySettings']);
   state.settings = { ...defaults, ...stored };
+  // Every gallery gets its own complete copy; values saved before settings
+  // became per gallery seed all three, then the old shared keys are removed.
+  state.settings.gallerySettings = Object.fromEntries(SUPPORTED_GALLERIES
+    .map((g) => [g.key, GALLERY_SETTINGS.forGallery(stored, g.key)]));
+  GALLERY_SETTINGS.keys.forEach((key) => delete state.settings[key]);
+  const legacy = GALLERY_SETTINGS.keys.filter((key) => key in stored);
+  if (legacy.length) {
+    await brw.storage.local.set({ gallerySettings: state.settings.gallerySettings });
+    await brw.storage.local.remove(legacy);
+  }
   // Ensure every supported gallery has an { images, videos } path entry.
   if (!state.settings.galleryPaths) {
     state.settings.galleryPaths = {};
@@ -95,6 +115,34 @@ async function loadSettings() {
 async function saveSettings(updates) {
   state.settings = { ...state.settings, ...updates };
   await brw.storage.local.set(updates);
+}
+
+/** Settings panel values of the gallery currently selected. */
+function currentGallerySettings() {
+  return state.settings.gallerySettings[state.settings.gallery]
+    || GALLERY_SETTINGS.forGallery({}, state.settings.gallery);
+}
+
+/** Save Settings panel values for the selected gallery only. */
+async function saveGallerySettings(updates) {
+  const gallery = state.settings.gallery;
+  const gallerySettings = {
+    ...state.settings.gallerySettings,
+    [gallery]: { ...currentGallerySettings(), ...updates },
+  };
+  await saveSettings({ gallerySettings });
+}
+
+/** Show the selected gallery's values in the Settings panel. */
+function renderGallerySettings() {
+  const s = currentGallerySettings();
+  $('rateLimit').value = s.rateLimit;
+  $('skipDownloaded').checked = s.skipDownloaded !== false;
+  $('preferPreview').checked = s.preferPreview === true;
+  $('skipVideos').checked = s.skipVideos === true;
+  $('expandGalleries').checked = s.expandGalleries === true;
+  $('galleryPaginate').checked = s.galleryPaginate !== false;
+  $('batchSize').value = s.batchSize ?? DEFAULT_SETTINGS.batchSize;
 }
 
 function applyTranslations() {
@@ -184,6 +232,7 @@ function initGallerySelect() {
 
   select.addEventListener('change', async () => {
     await saveSettings({ gallery: select.value });
+    renderGallerySettings();
     applyTranslations();
   });
 }
@@ -253,37 +302,24 @@ function bindSettingsPanel() {
   $('rateLimit').addEventListener('change', async () => {
     const input = $('rateLimit');
     const value = input.valueAsNumber;
-    const next = Number.isFinite(value) && value >= 0 ? value : state.settings.rateLimit;
+    const next = Number.isFinite(value) && value >= 0 ? value : currentGallerySettings().rateLimit;
     input.value = next;
-    await saveSettings({ rateLimit: next });
+    await saveGallerySettings({ rateLimit: next });
   });
 
-  $('skipDownloaded').addEventListener('change', async () => {
-    await saveSettings({ skipDownloaded: $('skipDownloaded').checked });
-  });
-
-  $('preferPreview').addEventListener('change', async () => {
-    await saveSettings({ preferPreview: $('preferPreview').checked });
-  });
-
-  $('skipVideos').addEventListener('change', async () => {
-    await saveSettings({ skipVideos: $('skipVideos').checked });
-  });
-
-  $('expandGalleries').addEventListener('change', async () => {
-    await saveSettings({ expandGalleries: $('expandGalleries').checked });
-  });
-
-  $('galleryPaginate').addEventListener('change', async () => {
-    await saveSettings({ galleryPaginate: $('galleryPaginate').checked });
+  // Each checkbox belongs to the gallery selected when it is changed.
+  ['skipDownloaded', 'preferPreview', 'skipVideos', 'expandGalleries', 'galleryPaginate'].forEach((key) => {
+    $(key).addEventListener('change', async () => {
+      await saveGallerySettings({ [key]: $(key).checked });
+    });
   });
 
   $('batchSize').addEventListener('change', async () => {
     const input = $('batchSize');
     const value = input.valueAsNumber;
-    const next = Number.isFinite(value) && value >= 1 ? Math.min(100, Math.round(value)) : state.settings.batchSize;
+    const next = Number.isFinite(value) && value >= 1 ? Math.min(100, Math.round(value)) : currentGallerySettings().batchSize;
     input.value = next;
-    await saveSettings({ batchSize: next });
+    await saveGallerySettings({ batchSize: next });
   });
 }
 
@@ -521,8 +557,9 @@ function bindDownload() {
     }
   });
 
-  brw.runtime.onMessage.addListener((message) => {
-    if (!message?.type) return;
+  // Progress comes only from the background, never from a content script.
+  brw.runtime.onMessage.addListener((message, sender) => {
+    if (!message?.type || sender?.id !== brw.runtime.id || sender.tab) return;
     if (!state.restored) {
       state.pending.push(message);
       return;
@@ -810,16 +847,10 @@ function initDatePicker() {
 }
 
 function applyLoadedSettings() {
-  $('rateLimit').value = state.settings.rateLimit;
-  $('skipDownloaded').checked = state.settings.skipDownloaded !== false;
-  $('preferPreview').checked = state.settings.preferPreview === true;
-  $('skipVideos').checked = state.settings.skipVideos === true;
-  $('expandGalleries').checked = state.settings.expandGalleries === true;
-  $('galleryPaginate').checked = state.settings.galleryPaginate !== false;
-  $('batchSize').value = state.settings.batchSize ?? 30;
   updateDatePickerInput();
   initUiLangSelect();
   initGallerySelect();
+  renderGallerySettings();
   applyTranslations();
 }
 

@@ -243,20 +243,70 @@ function buildFilename(filename, subfolder) {
   return `${clean}/${filename}`;
 }
 
+// Extensions a saved file may end with. Anything else gets .jpg appended, so a
+// name taken from a page can never produce an executable or an HTML/SVG file.
+const MEDIA_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tiff', 'heic', 'heif', 'jfif',
+  'mp4', 'webm', 'mov', 'mkv', 'm4v']);
+
+/** One plain file name: no folders, no control or reserved characters, a media extension. */
+function safeMediaFilename(filename) {
+  let name = String(filename || '')
+    .replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/^[._-]+/, '')
+    .replace(/[. ]+$/, '')
+    .slice(-180);
+  if (!name) name = `${Date.now()}`;
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  return MEDIA_EXTENSIONS.has(ext) ? name : `${name}.jpg`;
+}
+
+/** Registered gallery ('pinterest.com', ...) a tab or page URL belongs to, or null. */
+function galleryDomainOf(rawUrl) {
+  try {
+    const host = new URL(rawUrl).hostname;
+    return typeof findGalleryDomain === 'function' ? findGalleryDomain(host) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/** https page on the gallery's own site (deviation pages fetched for a gallery). */
+function isGalleryPageUrl(rawUrl, galleryDomain) {
+  try {
+    return new URL(rawUrl).protocol === 'https:' && !!galleryDomain && galleryDomainOf(rawUrl) === galleryDomain;
+  } catch (error) {
+    return false;
+  }
+}
+
+/** Thumbnails shown in the panel: only media from a supported gallery. */
+function safeThumbUrl(url) {
+  return url && typeof isAllowedMediaUrl === 'function' && isAllowedMediaUrl(url) ? url : '';
+}
+
+const BLOCKED_URL_MESSAGE = 'blocked: not a gallery media URL';
+
 // Download a single image into the configured folder.
 // `skipDownloaded` controls the duplicate check against download history.
-async function downloadImage(imageUrl, filename, targetFolderArg, skipDownloaded) {
+// `galleryDomain` is the gallery of the tab the URL came from; the URL must be
+// https on that gallery's media hosts, otherwise nothing is requested at all.
+async function downloadImage(imageUrl, rawFilename, targetFolderArg, skipDownloaded, galleryDomain) {
   try {
     if (!imageUrl) {
       return { status: 'error', message: 'No image URL provided' };
     }
+    if (!galleryDomain || typeof isAllowedMediaUrl !== 'function' || !isAllowedMediaUrl(imageUrl, galleryDomain)) {
+      console.warn(`[Download] Blocked non-gallery media URL for ${galleryDomain || 'unknown gallery'}: ${String(imageUrl).slice(0, 200)}`);
+      return { status: 'error', message: BLOCKED_URL_MESSAGE };
+    }
 
+    const filename = safeMediaFilename(rawFilename);
     const targetFolder = sanitizeSubfolder(targetFolderArg);
-    const fullFilename = filename
-      ? buildFilename(filename, targetFolder)
-      : buildFilename(`${Date.now()}.jpg`, targetFolder);
+    const fullFilename = buildFilename(filename, targetFolder);
 
-    if (skipDownloaded && filename) {
+    if (skipDownloaded) {
       // Duplicate check based on browser download history.
       const existingDownloads = await chrome.downloads.search({ query: [filename], state: 'complete' });
       const targetSuffix = targetFolder ? `/${targetFolder}/${filename}` : `/${filename}`;
@@ -283,7 +333,7 @@ async function downloadImage(imageUrl, filename, targetFolderArg, skipDownloaded
 
     return { status: 'success', downloadId };
   } catch (error) {
-    console.error(`[Download] Error downloading ${filename}: ${error.message}`);
+    console.error(`[Download] Error downloading ${rawFilename}: ${error.message}`);
     return { status: 'error', message: error.message };
   }
 }
@@ -477,9 +527,9 @@ function waitForDownload(downloadId, timeoutMs = DOWNLOAD_SETTLE_TIMEOUT_MS) {
  * the image host pushing back, so it cools down, slows the run and retries;
  * after DOWNLOAD_MAX_ATTEMPTS it reports 'blocked'.
  */
-async function downloadAndSettle(image, targetFolder, skipDownloaded, throttle) {
+async function downloadAndSettle(image, targetFolder, skipDownloaded, throttle, galleryDomain) {
   for (let attempt = 1; ; attempt++) {
-    const result = await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded);
+    const result = await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded, galleryDomain);
     if (result.status !== 'success') return result;
     const settled = await waitForDownload(result.downloadId);
     if (settled.state !== 'interrupted') return result;
@@ -506,7 +556,7 @@ function logItem(tab, status, extra = {}) {
     url: tab.url,
     title: extra.title || tab.title || tab.url,
     filename: extra.filename || '',
-    thumbUrl: extra.thumbUrl || '',
+    thumbUrl: safeThumbUrl(extra.thumbUrl),
     status,
     // Images in this tab with the reported status, and how many were found in
     // total. The sidebar renders these as "Downloaded (6)" / "Downloading (2/6)".
@@ -590,6 +640,14 @@ async function downloadIndexTab(tab, links, ctx) {
   const skippedReasons = new Set();      // e.g. subscription locked, literature
   let lastError = '';                    // shown on the row so failures are explainable
   const size = Math.max(1, Number(batchSize) || DEFAULT_SETTINGS.batchSize);
+  // Pages are fetched with the user's cookies, so only https pages on the
+  // tab's own gallery site are ever requested.
+  const galleryDomain = galleryDomainOf(tab.url);
+  const offSite = links.filter((url) => !isGalleryPageUrl(url, galleryDomain));
+  if (offSite.length) {
+    console.warn(`[Download] Ignoring ${offSite.length} link(s) outside ${galleryDomain || 'the gallery'}`);
+    links = links.filter((url) => isGalleryPageUrl(url, galleryDomain));
+  }
 
   for (let start = 0; start < links.length && !isCancelled() && !abandoned && !stoppedAtCutoff;) {
     // Shrink the burst while throttled: concurrent fetches are exactly what an
@@ -679,7 +737,7 @@ async function downloadIndexTab(tab, links, ctx) {
       for (const image of wanted) {
         if (isCancelled()) break;
         const targetFolder = pickSubfolder(image.filename, galleryPath);
-        const result = await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded);
+        const result = await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded, galleryDomain);
         if (result.status === 'success') {
           counts.downloaded++;
           throttleSuccess(throttle);
@@ -746,6 +804,7 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
   // from YouTube). They count in every total shown, so progress reads
   // "Downloading (5/13)" and ends "Partial (12/13)", never 12 then 13.
   const unavailable = Number(response.unavailable) || 0;
+  const galleryDomain = galleryDomainOf(tab.url);
 
   for (let i = 0; i < images.length; i++) {
     if (isCancelled()) break;
@@ -760,8 +819,8 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
 
     const targetFolder = pickSubfolder(image.filename, galleryPath);
     const result = policy?.awaitCompletion
-      ? await downloadAndSettle(image, targetFolder, skipDownloaded, throttle)
-      : await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded);
+      ? await downloadAndSettle(image, targetFolder, skipDownloaded, throttle, galleryDomain)
+      : await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded, galleryDomain);
 
     if (result.status === 'success') {
       counts.downloaded++;
@@ -979,7 +1038,39 @@ async function closeDownloadedTabs() {
   return ids;
 }
 
+/*
+ * Who may send which command. Web pages cannot message the extension at all
+ * (no externally_connectable), but each command is still accepted only from
+ * the context that legitimately sends it:
+ *   - panel commands (start, stop, clear, close tabs, read the log) only from
+ *     the extension's own pages: sidebar, side panel, popup. Those have no tab.
+ *   - page commands only from this extension's content script running in a
+ *     tab of a supported gallery.
+ */
+const PANEL_COMMANDS = new Set(['get-run-state', 'reset-log', 'close-downloaded-tabs', 'stop-scan', 'scan-all-tabs']);
+const PAGE_COMMANDS = new Set(['page-state', 'page-fetch', 'harvest-progress']);
+
+function isOwnExtension(sender) {
+  return !!sender && sender.id === chrome.runtime.id;
+}
+
+function isPanelSender(sender) {
+  return isOwnExtension(sender) && !sender.tab;
+}
+
+function isGalleryTabSender(sender) {
+  return isOwnExtension(sender) && !!sender.tab?.id && !!galleryDomainOf(sender.tab.url || sender.url);
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const command = message && message.command;
+  if ((PANEL_COMMANDS.has(command) && !isPanelSender(sender))
+    || (PAGE_COMMANDS.has(command) && !isGalleryTabSender(sender))) {
+    console.warn(`[Security] Refused '${command}' from an unexpected sender`);
+    sendResponse({ error: 'Command not allowed from this sender' });
+    return false;
+  }
+
   // Chromium isolates content scripts from page globals, and DeviantArt's CSP
   // blocks the old inline-script bridge in Opera. Read only the one whitelisted
   // page global from the sender tab's MAIN world.
@@ -1095,18 +1186,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // from onMessage listener went out of scope" once it is collected.
     sendResponse({ status: 'started' });
     // Explicitly get all settings from storage, falling back to defaults.
-    chrome.storage.local.get(['folder', 'galleryPaths', 'rateLimit', 'gallery', 'maxDate', 'skipDownloaded', 'preferPreview', 'expandGalleries', 'galleryPaginate', 'batchSize', 'skipVideos'], (settings) => {
+    // The Settings panel values are per gallery (gallerySettings); the old
+    // shared keys are read too, as the fallback for a not yet migrated install.
+    const perGallery = (typeof GALLERY_SETTINGS !== 'undefined' && GALLERY_SETTINGS) || null;
+    const galleryKeys = perGallery ? perGallery.keys : [];
+    chrome.storage.local.get(['folder', 'galleryPaths', 'gallery', 'maxDate', 'gallerySettings', ...galleryKeys], (stored) => {
       if (chrome.runtime.lastError) {
         console.error('Error getting settings:', chrome.runtime.lastError);
         setRunning(false);
         broadcast('download-complete');
         return;
       }
+      const selectedGallery = stored.gallery || DEFAULT_SETTINGS.gallery;
+      // The selected gallery's own settings, flattened as the run expects them.
+      const settings = { ...stored, ...(perGallery ? perGallery.forGallery(stored, selectedGallery) : {}) };
       console.log('[Download] Loaded settings:', settings);
       const folder = settings.folder ?? DEFAULT_SETTINGS.folder;
       const galleryPaths = settings.galleryPaths || DEFAULT_SETTINGS.galleryPaths;
       const rateLimitSeconds = settings.rateLimit ?? DEFAULT_SETTINGS.rateLimit;
-      const selectedGallery = settings.gallery || DEFAULT_SETTINGS.gallery;
       const maxDate = settings.maxDate || '';
       const skipDownloaded = settings.skipDownloaded ?? DEFAULT_SETTINGS.skipDownloaded;
       const preferPreview = settings.preferPreview ?? DEFAULT_SETTINGS.preferPreview;

@@ -21,6 +21,9 @@ function loadNaming() {
 }
 
 /* ------------------------------------------------------------ background */
+// The extension's own id, and a sender as the sidebar / popup appears (no tab).
+const EXT_ID = 'browser-images@test';
+const PANEL = { id: EXT_ID };
 // `interrupts` maps a URL to the reasons its next downloads are interrupted
 // with, e.g. { 'https://x/a.jpg': ['SERVER_FORBIDDEN'] }; `'*'` applies to all.
 // `session` is the storage.session backing object; pass the same one to a
@@ -29,7 +32,7 @@ function loadNaming() {
 // `sidePanel`: 'ok' mimics Chrome, 'fails' a side panel API that rejects,
 // absent mimics Yandex / Opera (no chrome.sidePanel).
 function loadBackground({ history = [], failUrls = [], interrupts = {}, session = {}, openTabs = [], sidePanel,
-  scriptResult } = {}) {
+  scriptResult, local = {} } = {}) {
   const broadcasts = [], started = [], intervals = [], fetched = [], removed = [], localRemoved = [], scriptCalls = [];
   const panel = { behavior: [], popups: [], onStartup: [] };
   const finalState = {};
@@ -41,9 +44,8 @@ function loadBackground({ history = [], failUrls = [], interrupts = {}, session 
     setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; },
     clearInterval: (id) => intervals.splice(id - 1, 1),
     Math, Date, URL, Promise, Number, Set, Error, AbortController,
-    DEFAULT_SETTINGS: { rateLimit: 0.5, batchSize: 5, skipDownloaded: true, skipVideos: false },
     chrome: {
-      runtime: { onInstalled: { addListener(){} }, onMessage: { addListener: (f) => { handler = f; } },
+      runtime: { id: EXT_ID, onInstalled: { addListener(){} }, onMessage: { addListener: (f) => { handler = f; } },
         sendMessage: (m) => { broadcasts.push(m); return Promise.resolve(); },
         getPlatformInfo: (cb) => cb && cb({}), lastError: null },
       downloads: { onChanged: { addListener(){}, removeListener(){} },
@@ -57,7 +59,7 @@ function loadBackground({ history = [], failUrls = [], interrupts = {}, session 
           finalState[started.length] = reason ? { state: 'interrupted', error: reason } : { state: 'complete' };
           return Promise.resolve(started.length);
         } },
-      storage: { local: { set(){}, get: (k, cb) => cb && cb({}), remove: (keys) => { localRemoved.push(...keys); return Promise.resolve(); } },
+      storage: { local: { set(){}, get: (keys, cb) => { const r = Object.fromEntries([].concat(keys || []).filter((k) => k in local).map((k) => [k, local[k]])); return cb ? cb(r) : Promise.resolve(r); }, remove: (keys) => { localRemoved.push(...keys); return Promise.resolve(); } },
         session: {
           get: (key) => Promise.resolve(key in session ? { [key]: JSON.parse(JSON.stringify(session[key])) } : {}),
           set: (obj) => { for (const [k, v] of Object.entries(obj)) session[k] = JSON.parse(JSON.stringify(v)); return Promise.resolve(); },
@@ -79,10 +81,15 @@ function loadBackground({ history = [], failUrls = [], interrupts = {}, session 
     s.chrome.runtime.onStartup = { addListener: (f) => panel.onStartup.push(f) };
   }
   s.self = s; vm.createContext(s);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/defaults.js'), 'utf8'), s, { filename: 'defaults.js' });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/galleries.js'), 'utf8'), s, { filename: 'galleries.js' });
+  for (const g of ['artstation', 'deviantart', 'pinterest']) {
+    vm.runInContext(fs.readFileSync(path.join(ROOT, `src/galleries/${g}.js`), 'utf8'), s, { filename: `${g}.js` });
+  }
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/background.js'), 'utf8'), s, { filename: 'background.js' });
   s.fetch = (url) => { fetched.push(url); return Promise.resolve({ status: 200, ok: true, text: () => Promise.resolve(url) }); };
   // Send a command the way a panel does and wait for the (possibly async) reply.
-  const ask = (message, sender = {}) => new Promise((resolve) => {
+  const ask = (message, sender = PANEL) => new Promise((resolve) => {
     const async = handler(message, sender, resolve);
     if (async !== true) setImmediate(() => resolve(undefined));
   });
@@ -130,7 +137,7 @@ function loadParsers({ fastTimers = false } = {}) {
   section('background: per-tab aggregation');
   const TAB = { id: 7, url: 'https://www.deviantart.com/a/art/B-1', title: 'Barn' };
   const PATHS = { images: 'PIC', videos: 'MOV' };
-  const imgs = (n) => Array.from({ length: n }, (_, i) => ({ imageUrl: `https://x/img${i}.jpg`, filename: `img${i}.jpg` }));
+  const imgs = (n) => Array.from({ length: n }, (_, i) => ({ imageUrl: `https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/u/img${i}.jpg`, filename: `img${i}.jpg` }));
   const lastRow = (b) => b.filter((m) => m.type === 'download-progress').map((m) => m.item).pop();
 
   let env = loadBackground();
@@ -141,7 +148,7 @@ function loadParsers({ fastTimers = false } = {}) {
   await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(3) }, PATHS, env.s.createThrottle(0), true, false);
   eq('all duplicates -> skipped (3)', [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count], ['skipped', 3]);
 
-  env = loadBackground({ failUrls: ['https://x/img0.jpg'] });
+  env = loadBackground({ failUrls: ['https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/u/img0.jpg'] });
   await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(1) }, PATHS, env.s.createThrottle(0), true, false);
   eq('failure -> error (1)', [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count], ['error', 1]);
 
@@ -151,7 +158,7 @@ function loadParsers({ fastTimers = false } = {}) {
   await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(3) }, PATHS, env.s.createThrottle(0), true, false, POLICY);
   eq('paced: all complete -> downloaded (3)', [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count, env.started.length], ['downloaded', 3, 3]);
 
-  env = loadBackground({ interrupts: { 'https://x/img0.jpg': ['SERVER_FORBIDDEN'] } });
+  env = loadBackground({ interrupts: { 'https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/u/img0.jpg': ['SERVER_FORBIDDEN'] } });
   let thr = env.s.createThrottle(0);
   await env.s.downloadTabImages(TAB, { title: 'x', images: imgs(2) }, PATHS, thr, true, false, POLICY);
   eq('paced: refused once -> retried and downloaded', [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count, env.started.length], ['downloaded', 2, 3]);
@@ -186,8 +193,8 @@ function loadParsers({ fastTimers = false } = {}) {
     [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count], ['downloaded', 2]);
 
   section('background: skip videos');
-  const mixed = [{ imageUrl: 'https://x/a.jpg', filename: 'a.jpg' },
-                 { imageUrl: 'https://x/v.mp4', filename: 'clip.mp4' }];
+  const mixed = [{ imageUrl: 'https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/u/a.jpg', filename: 'a.jpg' },
+                 { imageUrl: 'https://wixmp-ed30a86b8c4ca887773594c2.wixmp.com/v/mp4/u/v.mp4', filename: 'clip.mp4' }];
   env = loadBackground();
   eq('off: nothing dropped', env.s.withoutVideos(mixed, false).dropped, 0);
   eq('on: the mp4 is dropped', env.s.withoutVideos(mixed, true).keep.map((i) => i.filename), ['a.jpg']);
@@ -198,7 +205,7 @@ function loadParsers({ fastTimers = false } = {}) {
   section('background: messages, throttle, ETA, keepalive');
   env = loadBackground();
   let replied = null;
-  eq('scan-all-tabs returns false', env.getHandler()({ command: 'scan-all-tabs' }, {}, (r) => { replied = r; }), false);
+  eq('scan-all-tabs returns false', env.getHandler()({ command: 'scan-all-tabs' }, PANEL, (r) => { replied = r; }), false);
   eq('...and answers', replied, { status: 'started' });
   const t = env.s.createThrottle(0.5);
   eq('1st 429 -> 1.0s / 5s', [env.s.throttleHit(t, '429'), t.delaySeconds], [5000, 1.0]);
@@ -264,6 +271,41 @@ function loadParsers({ fastTimers = false } = {}) {
   await env.ask({ command: 'scan-all-tabs' });
   eq('a finished run releases the lock', (await env.ask({ command: 'get-run-state' })).running, false);
 
+  section('settings: per gallery');
+  env = loadBackground();
+  const GS = env.s.GALLERY_SETTINGS;
+  const DEF = { rateLimit: 0.5, skipDownloaded: true, preferPreview: false, skipVideos: false,
+    expandGalleries: false, galleryPaginate: true, batchSize: 10 };
+  eq('fresh install: every gallery starts from the same defaults',
+    ['artstation.com', 'deviantart.com', 'pinterest.com'].map((g) => GS.forGallery({}, g)), [DEF, DEF, DEF]);
+  const mixedStore = { skipDownloaded: false, gallerySettings: { 'pinterest.com': { expandGalleries: true } } };
+  eq('a gallery\'s own value wins; values saved before 1.1.1 seed the rest; else the default', [
+    GS.forGallery(mixedStore, 'pinterest.com'), GS.forGallery(mixedStore, 'deviantart.com')], [
+    { ...DEF, skipDownloaded: false, expandGalleries: true }, { ...DEF, skipDownloaded: false }]);
+  eq('own false/0 values are kept, not replaced by defaults',
+    GS.forGallery({ gallerySettings: { 'deviantart.com': { skipDownloaded: false, rateLimit: 0 } } }, 'deviantart.com'),
+    { ...DEF, skipDownloaded: false, rateLimit: 0 });
+
+  const runArgs = async (local) => {
+    const e = loadBackground({ local });
+    let args = null;
+    e.s.downloadImagesSequentially = (...a) => { args = a; return Promise.resolve(); };
+    await e.ask({ command: 'scan-all-tabs' });
+    await new Promise(setImmediate);
+    // (tabs, folder, paths, rateLimit, gallery, maxDate, skipDownloaded, preferPreview, expand, paginate, batch, skipVideos)
+    return args && args.slice(3);
+  };
+  const perGalleryStore = { gallery: 'pinterest.com', gallerySettings: {
+    'pinterest.com': { rateLimit: 2, skipDownloaded: false, expandGalleries: true, skipVideos: true },
+    'deviantart.com': { rateLimit: 1, preferPreview: true, batchSize: 3 } } };
+  eq('a run uses the selected gallery\'s settings (Pinterest)', await runArgs(perGalleryStore),
+    [2, 'pinterest.com', '', false, false, true, true, 10, true]);
+  eq('...and switching the gallery switches them (DeviantArt)', await runArgs({ ...perGalleryStore, gallery: 'deviantart.com' }),
+    [1, 'deviantart.com', '', true, true, false, true, 3, false]);
+  eq('not yet migrated install: the old shared values still apply',
+    await runArgs({ gallery: 'artstation.com', skipDownloaded: false, expandGalleries: true }),
+    [0.5, 'artstation.com', '', false, false, true, true, 10, false]);
+
   section('background: toolbar icon - side panel primary, popup fallback');
   env = loadBackground({ sidePanel: 'ok' });
   await new Promise(setImmediate);
@@ -280,32 +322,111 @@ function loadParsers({ fastTimers = false } = {}) {
   const pageReply = { ok: true, status: 200, body: '{"assets":[]}' };
   env = loadBackground({ scriptResult: pageReply });
   eq('page fetch returns MAIN-world result to content script',
-    await env.ask({ command: 'page-fetch', url: 'https://www.artstation.com/projects/ABC.json' }, { tab: { id: 42 } }),
+    await env.ask({ command: 'page-fetch', url: 'https://www.artstation.com/projects/ABC.json' }, { id: EXT_ID, tab: { id: 42, url: 'https://www.artstation.com/artwork/ABC' } }),
     pageReply);
   eq('page fetch executes in sender tab MAIN world with requested URL',
     [env.scriptCalls[0].target, env.scriptCalls[0].world, env.scriptCalls[0].args],
     [{ tabId: 42 }, 'MAIN', ['https://www.artstation.com/projects/ABC.json']]);
-  eq('page fetch without sender tab is rejected',
+  eq('page fetch from the panel (no sender tab) is refused',
     await env.ask({ command: 'page-fetch', url: 'https://www.artstation.com/projects/ABC.json' }),
-    { error: 'Page fetch requires a sender tab and URL' });
+    { error: 'Command not allowed from this sender' });
   const stateReply = { '@@entities': { deviation: {} } };
   env = loadBackground({ scriptResult: stateReply });
   eq('page state returns whitelisted MAIN-world state',
-    await env.ask({ command: 'page-state' }, { tab: { id: 7 } }), { state: stateReply });
+    await env.ask({ command: 'page-state' }, { id: EXT_ID, tab: { id: 7, url: 'https://www.deviantart.com/a/art/B-1' } }), { state: stateReply });
   eq('page state executes in sender tab MAIN world',
     [env.scriptCalls[0].target, env.scriptCalls[0].world], [{ tabId: 7 }, 'MAIN']);
-  eq('page state without sender tab is rejected', await env.ask({ command: 'page-state' }),
-    { error: 'Page state requires a sender tab' });
+  eq('page state from the panel (no sender tab) is refused', await env.ask({ command: 'page-state' }),
+    { error: 'Command not allowed from this sender' });
+
+  section('security: media host allow-list, filenames, senders');
+  env = loadBackground();
+  const allowed = (url, domain) => env.s.isAllowedMediaUrl(url, domain);
+  eq('real gallery media hosts are allowed for their own gallery', [
+    allowed('https://cdna.artstation.com/p/assets/images/images/001/4k/a.jpg', 'artstation.com'),
+    allowed('https://cdn.artstation.com/p/video_sources/002/000/980/clip.mp4', 'artstation.com'),
+    allowed('https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/u/a.jpg?token=t', 'deviantart.com'),
+    allowed('https://wixmp-ed30a86b8c4ca887773594c2.wixmp.com/v/mp4/u/d.VideoQualities.res_720p.x.mp4', 'deviantart.com'),
+    allowed('https://i.pinimg.com/736x/ca/56/4f/a.jpg', 'pinterest.com'),
+    allowed('https://i.pinimg.com/videos/x/a.mp4', 'pinterest.com'),
+    allowed('https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/a_720w.mp4', 'pinterest.com'),
+  ], [true, true, true, true, true, true, true]);
+  eq('rejected: other hosts, other galleries, http, credentials, ports, lookalikes', [
+    allowed('https://evil.example/x?.pinimg.com/videos/a.mp4', 'pinterest.com'),
+    allowed('https://pinimg.com.evil.example/videos/a.mp4', 'pinterest.com'),
+    allowed('https://i.pinimg.com@evil.example/a.jpg', 'pinterest.com'),
+    allowed('https://notpinimg.com/a.jpg', 'pinterest.com'),
+    allowed('http://i.pinimg.com/736x/a.jpg', 'pinterest.com'),
+    allowed('https://i.pinimg.com:8443/736x/a.jpg', 'pinterest.com'),
+    allowed('https://cdna.artstation.com/p/a.jpg', 'pinterest.com'),
+    allowed('https://192.168.1.1/a.jpg', 'deviantart.com'),
+    allowed('javascript:alert(1)', 'deviantart.com'),
+    allowed('https://i.pinimg.com/736x/a.jpg', null) && allowed('https://i.pinimg.com/736x/a.jpg', 'example.com'),
+  ], [false, false, false, false, false, false, false, false, false, false]);
+
+  const PIN_TAB = { id: 9, url: 'https://es.pinterest.com/pin/1/', title: 'Pin' };
+  env = loadBackground();
+  await env.s.downloadTabImages(PIN_TAB, { title: 'x', images: [
+    { imageUrl: 'https://evil.example/x?.pinimg.com/videos/a.mp4', filename: 'a.mp4' },
+    { imageUrl: 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/a_720w.mp4', filename: 'b.mp4' },
+  ] }, PATHS, env.s.createThrottle(0), false, false);
+  eq('the moderator\'s URL is never requested; the real video still downloads',
+    [env.started, lastRow(env.broadcasts).status], [['MOV/b.mp4'], 'downloaded']);
+  eq('blocked item is not shown as a thumbnail',
+    env.broadcasts.some((m) => /evil/.test(m.item?.thumbUrl || '')), false);
+  eq('downloadImage refuses a non-gallery URL with a clear message',
+    await env.s.downloadImage('https://evil.example/a.jpg', 'a.jpg', 'PIC', false, 'pinterest.com'),
+    { status: 'error', message: 'blocked: not a gallery media URL' });
+  eq('downloadImage refuses when the gallery is unknown',
+    (await env.s.downloadImage('https://i.pinimg.com/736x/a.jpg', 'a.jpg', 'PIC', false, null)).status, 'error');
+  eq('nothing reached the browser downloader', env.started.length, 1);
+
+  eq('filenames: folders, traversal and executables neutralised', [
+    env.s.safeMediaFilename('../../evil.exe'),
+    env.s.safeMediaFilename('a/b\\c.mp4'),
+    env.s.safeMediaFilename('.hidden.png'),
+    env.s.safeMediaFilename('art.svg'),
+    env.s.safeMediaFilename('clip.MP4'),
+  ], ['evil.exe.jpg', 'a_b_c.mp4', 'hidden.png', 'art.svg.jpg', 'clip.MP4']);
+  eq('panel thumbnails only from gallery media hosts',
+    [env.s.logItem(TAB, 'x', { thumbUrl: 'https://evil.example/t.jpg' }).thumbUrl,
+     env.s.logItem(TAB, 'x', { thumbUrl: 'https://i.pinimg.com/236x/t.jpg' }).thumbUrl],
+    ['', 'https://i.pinimg.com/236x/t.jpg']);
+
+  const contentSender = { id: EXT_ID, tab: { id: 3, url: 'https://www.deviantart.com/a/art/B-1' } };
+  const refused = { error: 'Command not allowed from this sender' };
+  env = loadBackground();
+  eq('panel commands are refused from a content script', [
+    await env.ask({ command: 'scan-all-tabs' }, contentSender),
+    await env.ask({ command: 'reset-log' }, contentSender),
+    await env.ask({ command: 'close-downloaded-tabs' }, contentSender),
+    await env.ask({ command: 'stop-scan' }, contentSender),
+    await env.ask({ command: 'get-run-state' }, contentSender),
+  ], [refused, refused, refused, refused, refused]);
+  eq('...and from another extension', await env.ask({ command: 'scan-all-tabs' }, { id: 'other@ext' }), refused);
+  eq('page commands are refused from a non-gallery tab', [
+    await env.ask({ command: 'page-fetch', url: 'https://example.com/' }, { id: EXT_ID, tab: { id: 4, url: 'https://example.com/' } }),
+    await env.ask({ command: 'page-state' }, { id: 'other@ext', tab: { id: 5, url: 'https://www.deviantart.com/' } }),
+  ], [refused, refused]);
+  eq('no script ran for a refused command', env.scriptCalls.length, 0);
+
+  env = loadBackground();
+  await env.s.downloadIndexTab({ id: 1, url: 'https://www.deviantart.com/a/gallery', title: 'G' },
+    ['http://www.deviantart.com/a/art/W-1', 'https://evil.example/a/art/W-2', 'https://192.168.1.1/a/art/W-3',
+     'https://www.deviantart.com/a/art/W-4'],
+    { parser: { parseDeviationHtml: () => ({ images: [] }) }, galleryPath: PATHS, throttle: env.s.createThrottle(0),
+      skipDownloaded: false, preferPreview: false, batchSize: 5 });
+  eq('gallery pages are fetched only over https from the gallery itself', env.fetched, ['https://www.deviantart.com/a/art/W-4']);
 
   section('background: date cutoff early stop');
   const day = (n) => `2026-08-${String(n).padStart(2, '0')}`;
   const dates = Array.from({ length: 30 }, (_, i) => day(30 - i));
   const parser = { parseDeviationHtml: (html) => {
     const i = Number(html.split('#')[1]);
-    return { images: [{ imageUrl: `https://x/${i}.jpg`, filename: `img${i}.jpg` }], title: `D${i}`, pageDate: dates[i] };
+    return { images: [{ imageUrl: `https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/u/${i}.jpg`, filename: `img${i}.jpg` }], title: `D${i}`, pageDate: dates[i] };
   } };
   const links = dates.map((_, i) => `https://www.deviantart.com/a/art/W-${i}#${i}`);
-  const runIndex = (e, ctx) => e.s.downloadIndexTab({ id: 1, url: 'u', title: 'G' }, links, {
+  const runIndex = (e, ctx) => e.s.downloadIndexTab({ id: 1, url: 'https://www.deviantart.com/a/gallery', title: 'G' }, links, {
     parser, galleryPath: PATHS, throttle: e.s.createThrottle(0),
     skipDownloaded: false, preferPreview: false, batchSize: 5, ...ctx });
 
@@ -323,7 +444,7 @@ function loadParsers({ fastTimers = false } = {}) {
     eq(`${label}: walks the whole list`, env.fetched.length, 30);
   }
   env = loadBackground();
-  await env.s.downloadIndexTab({ id: 1, url: 'u', title: 'G' }, links.slice(0, 2), {
+  await env.s.downloadIndexTab({ id: 1, url: 'https://www.deviantart.com/a/gallery', title: 'G' }, links.slice(0, 2), {
     parser: { parseDeviationHtml: () => null }, galleryPath: PATHS, throttle: env.s.createThrottle(0),
     skipDownloaded: false, preferPreview: false, batchSize: 5 });
   eq('a failed gallery row says why', [lastRow(env.broadcasts).status,
@@ -418,7 +539,7 @@ function loadParsers({ fastTimers = false } = {}) {
   // global, and they swallow an unanswered message.
   const loadContent = (withBrowser, sendMessage) => {
     const c = { console: { log() {}, warn() {}, error() {} }, URL, Promise, Error, JSON,
-      location: { href: 'https://www.deviantart.com/a/art/B-1', hostname: 'www.deviantart.com' },
+      location: { href: 'https://www.deviantart.com/a/art/B-1', hostname: 'www.deviantart.com', origin: 'https://www.deviantart.com' },
       document: { querySelector: () => null, images: [] },
       fetch: (url) => Promise.resolve({ ok: true, status: 200, direct: url }),
       chrome: { runtime: { sendMessage, onMessage: { addListener() {} } } } };
@@ -434,6 +555,12 @@ function loadParsers({ fastTimers = false } = {}) {
   eq('Chromium: unanswered page-state -> null, not a throw', await chromium.__BI_PAGE_STATE__(), null);
   eq('Chromium: unanswered page-fetch -> direct fetch, not a throw',
     (await chromium.__BI_PAGE_FETCH__('https://www.deviantart.com/x')).direct, 'https://www.deviantart.com/x');
+  const fetchError = async (c, url) => { try { await c.__BI_PAGE_FETCH__(url); return null; } catch (e) { return e.message; } };
+  eq('Chromium: unanswered page-fetch never falls back to another origin',
+    await fetchError(chromium, 'http://192.168.1.1/admin'), 'Cross-origin page fetch rejected');
+  const refusing = loadContent(false, () => Promise.resolve({ error: 'Cross-origin page fetch rejected' }));
+  eq('Chromium: a page-fetch the background rejected is final (no direct-fetch fallback)',
+    await fetchError(refusing, 'https://evil.example/x'), 'Cross-origin page fetch rejected');
 
   const pinterest = loadParsers().GALLERY_PARSERS['pinterest.com'];
   eq('pinterest pin is a main view', pinterest.isMainImageView('es.pinterest.com', '/pin/123/'), true);
@@ -728,6 +855,112 @@ function loadParsers({ fastTimers = false } = {}) {
     { fetch: asFetch(portfolio, fetchLog), maxDate: '2025-07-01' });
   eq('max date: older projects not fetched, stops paging', [recent.images.length,
     fetchLog.some((u) => u.includes('P2.json')), fetchLog.some((u) => u.includes('page=2'))], [2, false, false]);
+
+  // Albums: /{name}/albums/{id} lists projects through the same endpoint plus
+  // album_id; /albums/all is the whole portfolio.
+  eq('album pages are index views', ['/someartist/albums/57154', '/someartist/albums/57154/', '/someartist/albums/all']
+    .map((p) => artstation.isIndexView('www.artstation.com', p)), [true, true, true]);
+  eq('not albums: other sub-pages, non-numeric ids, site sections', ['/someartist/likes', '/someartist/albums/abc',
+    '/someartist/albums', '/artwork/albums/1', '/search/albums/1']
+    .map((p) => artstation.isIndexView('www.artstation.com', p)), [false, false, false, false, false]);
+  eq('album path parsed', [asParsers.ARTSTATION_INTERNALS.portfolioFromPath('/someartist/albums/57154'),
+    asParsers.ARTSTATION_INTERNALS.portfolioFromPath('/someartist/albums/all'),
+    asParsers.ARTSTATION_INTERNALS.portfolioFromPath('/someartist')],
+    [{ username: 'someartist', albumId: '57154' }, { username: 'someartist', albumId: null },
+     { username: 'someartist', albumId: null }]);
+  // Album order is the artist's own, so an old project can come before newer ones.
+  const album = {
+    [`${AS}/users/someartist/projects.json?page=1&album_id=57154`]: { total_count: 3, data: [
+      { hash_id: 'P3', published_at: '2024-01-01T00:00:00Z' }, { hash_id: 'P1', published_at: '2026-05-01T00:00:00Z' }] },
+    [`${AS}/users/someartist/projects.json?page=2&album_id=57154`]: { total_count: 3, data: [
+      { hash_id: 'P2', published_at: '2025-06-01T00:00:00Z' }] },
+    [`${AS}/projects/P1.json`]: portfolio[`${AS}/projects/P1.json`],
+    [`${AS}/projects/P2.json`]: portfolio[`${AS}/projects/P2.json`],
+    [`${AS}/projects/P3.json`]: portfolio[`${AS}/projects/P3.json`],
+  };
+  fetchLog = [];
+  const albumAll = await artstation.extractIndexLinks(asDoc(null), `${AS}/someartist/albums/57154`,
+    { fetch: asFetch(album, fetchLog) });
+  eq('album: only the album\'s projects, across pages', [albumAll.images.length,
+    fetchLog.filter((u) => u.includes('projects.json?')).every((u) => u.includes('album_id=57154'))], [4, true]);
+  fetchLog = [];
+  const albumRecent = await artstation.extractIndexLinks(asDoc(null), `${AS}/someartist/albums/57154`,
+    { fetch: asFetch(album, fetchLog), maxDate: '2025-01-01' });
+  eq('album + max date: old projects skipped, but paging continues (album order is not by date)',
+    [albumRecent.images.length, fetchLog.some((u) => u.includes('P3.json')), fetchLog.some((u) => u.includes('page=2'))],
+    [3, false, true]);
+  fetchLog = [];
+  await artstation.extractIndexLinks(asDoc(null), `${AS}/someartist/albums/all`, { fetch: asFetch(portfolio, fetchLog) });
+  eq('/albums/all is the plain portfolio request', fetchLog[0], `${AS}/users/someartist/projects.json?page=1`);
+  fetchLog = [];
+  const badHash = await artstation.extractIndexLinks(asDoc(null), `${AS}/someartist`, { fetch: asFetch({
+    [`${AS}/users/someartist/projects.json?page=1`]: { total_count: 1, data: [{ hash_id: '../x', published_at: '2026-01-01' }] },
+  }, fetchLog) });
+  eq('a malformed project id is never put into a request', [badHash.images.length, fetchLog.length], [0, 1]);
+
+  section('security: parsers accept only their own media hosts');
+  // ArtStation: a player page or clip file on another host is never fetched
+  // or returned, and a %2F in a clip name cannot create a folder.
+  const evilEmbed = 'https://evil.example/api/v2/animation/video_clips/x/embed.html';
+  const evilClipPage = '<source media="(min-width: 0px)" src="https://evil.example/p/video_sources/a.mp4" />';
+  const slashClipPage = '<source media="(min-width: 0px)" src="https://cdn.artstation.com/p/video_sources/1/..%2F..%2Fevil.mp4" />';
+  const relClipPage = '<source media="(min-width: 0px)" src="/p/video_sources/1/rel.mp4" />';
+  const clipAsset = (id, embed) => ({ asset_type: 'video_clip', has_image: true, id, image_url: `${CDN}/v/t.jpg`,
+    player_embedded: `<iframe src='${embed}'></iframe>` });
+  const clipEmbed2 = `${AS}/api/v2/animation/video_clips/2222-bbbb/embed.html?s=sig&t=1`;
+  const clipEmbed3 = `${AS}/api/v2/animation/video_clips/3333-cccc/embed.html?s=sig&t=1`;
+  const secLog = [];
+  const secItems = await artstation.extractImageUrls(asDoc(null), `${AS}/artwork/SEC1`, { fetch: asFetch({
+    [`${AS}/projects/SEC1.json`]: asProject('SEC1', '2025-01-01', [
+      clipAsset(41, evilEmbed), clipAsset(42, clipEmbed), clipAsset(43, clipEmbed2), clipAsset(44, clipEmbed3),
+      { asset_type: 'image', has_image: true, id: 45, image_url: 'https://evil.example/p/assets/images/images/large/x.jpg' }]),
+    [clipEmbed]: evilClipPage, [clipEmbed2]: slashClipPage, [clipEmbed3]: relClipPage,
+  }, secLog) });
+  eq('ArtStation: player page on another host is never fetched', secLog.includes(evilEmbed), false);
+  eq('ArtStation: only ArtStation-hosted files survive, relative clip sources resolve against ArtStation',
+    secItems.map((i) => i.imageUrl), [
+      'https://cdn.artstation.com/p/video_sources/1/..%2F..%2Fevil.mp4',
+      'https://www.artstation.com/p/video_sources/1/rel.mp4']);
+  eq('ArtStation: a decoded %2F never reaches the filename as a folder',
+    /[\\/]/.test(secItems[0].filename), false);
+  eq('ArtStation: rendered <video> on another host is ignored',
+    (await artstation.extractImageUrls(asDoc(null, [renderedAsset([], ['https://evil.example/clip.mp4', renderedVideo])]),
+      `${AS}/artwork/GONE`, { fetch: asFetch({}) })).map((i) => i.imageUrl), [renderedVideo]);
+
+  // Pinterest: the moderator's exact case, plus lookalikes, in user-written text.
+  const realVideo = 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4';
+  const evilHtml = '<html><body><div class="description">'
+    + 'https://evil.example/x?.pinimg.com/videos/a.mp4 '
+    + 'https://pinimg.com.evil.example/videos/b.mp4 '
+    + 'https://v1.pinimg.com@evil.example/videos/c.mp4 '
+    + 'http://v1.pinimg.com/videos/d.mp4 '
+    + '</div></body></html>';
+  eq('Pinterest: crafted video URLs in page text are all ignored',
+    pinterest.extractImageUrls(mkPinDoc({ html: evilHtml }), 'https://www.pinterest.com/pin/456/'), []);
+  eq('Pinterest: ...while a real pinimg video next to them is still found',
+    pinterest.extractImageUrls(mkPinDoc({ html: evilHtml.replace('</div>', ` ${realVideo}</div>`) }),
+      'https://www.pinterest.com/pin/456/').map((i) => i.imageUrl), [realVideo]);
+  eq('Pinterest: a <video> on another host is ignored',
+    pinterest.extractImageUrls(mkPinDoc({ videos: [{ currentSrc: 'https://evil.example/v.mp4', querySelectorAll: () => [] }] }),
+      'https://www.pinterest.com/pin/456/'), []);
+  eq('Pinterest: og:image on another host is ignored',
+    pinterest.extractImageUrls(mkPinDoc({ og: 'https://evil.example/a.jpg' }), 'https://www.pinterest.com/pin/456/'), []);
+
+  // DeviantArt: media in the page state must be on DeviantArt's file hosts.
+  const daEvil = (b, baseUri) => ({ '@@entities': {
+    deviation: { 9: { title: 'T', author: 1, url: 'https://www.deviantart.com/a/art/T-9',
+      media: { baseUri, prettyName: 'work', token: [], types: b ? [{ t: 'video', b, h: 720 }] : [{ t: 'fullview', c: '', r: 0 }] } } },
+    deviationExtended: { 9: {} }, user: { 1: { username: 'a' } } } });
+  const daParser = loadParsers().GALLERY_PARSERS['deviantart.com'];
+  eq('DeviantArt: video on another host is dropped', daParser.parseDeviationHtml(
+    `window.__INITIAL_STATE__ = JSON.parse("${JSON.stringify(daEvil('https://evil.example/v.mp4', 'https://images-wixmp-x.wixmp.com/f/p.jpg')).replace(/"/g, '\\"')}");`,
+    'https://www.deviantart.com/a/art/T-9').images, []);
+  eq('DeviantArt: image on another host is dropped', daParser.parseDeviationHtml(
+    `window.__INITIAL_STATE__ = JSON.parse("${JSON.stringify(daEvil(null, 'http://images-wixmp-x.wixmp.com/f/p.jpg')).replace(/"/g, '\\"')}");`,
+    'https://www.deviantart.com/a/art/T-9').images, []);
+  eq('DeviantArt: real wixmp video is kept', daParser.parseDeviationHtml(
+    `window.__INITIAL_STATE__ = JSON.parse("${JSON.stringify(daEvil('https://wixmp-ed30a86b8c4ca887773594c2.wixmp.com/v/mp4/u/d.mp4', 'https://images-wixmp-x.wixmp.com/f/p.jpg')).replace(/"/g, '\\"')}");`,
+    'https://www.deviantart.com/a/art/T-9').images.map((i) => i.imageUrl), ['https://wixmp-ed30a86b8c4ca887773594c2.wixmp.com/v/mp4/u/d.mp4']);
 
   section('manifests: minimal permissions');
   const GALLERY_HOSTS = ['https://*.artstation.com/*', 'https://*.deviantart.com/*', 'https://*.pinterest.com/*'];
