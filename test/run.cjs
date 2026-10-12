@@ -192,15 +192,31 @@ function loadParsers({ fastTimers = false } = {}) {
   eq('no undownloadable items -> plain Downloaded (2), as before',
     [lastRow(env.broadcasts).status, lastRow(env.broadcasts).count], ['downloaded', 2]);
 
-  section('background: skip videos');
-  const mixed = [{ imageUrl: 'https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/u/a.jpg', filename: 'a.jpg' },
-                 { imageUrl: 'https://wixmp-ed30a86b8c4ca887773594c2.wixmp.com/v/mp4/u/v.mp4', filename: 'clip.mp4' }];
+  section('background: media filter (Images & videos / Only images / Only videos) and GIF folder');
+  const WIXI = 'https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/u';
+  const mixed = [{ imageUrl: `${WIXI}/a.jpg`, filename: 'a.jpg' },
+                 { imageUrl: 'https://wixmp-ed30a86b8c4ca887773594c2.wixmp.com/v/mp4/u/v.mp4', filename: 'clip.mp4' },
+                 { imageUrl: `${WIXI}/g.gif`, filename: 'anim.gif' }];
   env = loadBackground();
-  eq('off: nothing dropped', env.s.withoutVideos(mixed, false).dropped, 0);
-  eq('on: the mp4 is dropped', env.s.withoutVideos(mixed, true).keep.map((i) => i.filename), ['a.jpg']);
+  const kept = (kinds) => env.s.filterKinds(mixed, kinds).keep.map((i) => i.filename);
+  eq('Images & videos: nothing dropped', [kept({}), env.s.filterKinds(mixed, {}).dropped], [['a.jpg', 'clip.mp4', 'anim.gif'], 0]);
+  eq('Only images: the mp4 is dropped, a GIF is an image', kept({ skipVideos: true }), ['a.jpg', 'anim.gif']);
+  eq('Only videos: images and the GIF are dropped', kept({ skipImages: true }), ['clip.mp4']);
+  eq('GIF as video: counts as a video for the filter', [kept({ skipVideos: true, gifAsVideo: true }), kept({ skipImages: true, gifAsVideo: true })],
+    [['a.jpg'], ['clip.mp4', 'anim.gif']]);
+  eq('GIF folder: images path by default, videos path when switched on',
+    [env.s.pickSubfolder('anim.gif', PATHS), env.s.pickSubfolder('anim.gif', PATHS, true), env.s.pickSubfolder('a.jpg', PATHS, true),
+     env.s.pickSubfolder('clip.mp4', PATHS)], ['PIC', 'MOV', 'PIC', 'MOV']);
   env = loadBackground();
-  await env.s.downloadTabImages(TAB, { title: 'x', images: mixed }, PATHS, env.s.createThrottle(0), false, true);
-  eq('only the image downloads', env.started.length, 1);
+  await env.s.downloadTabImages(TAB, { title: 'x', images: mixed }, PATHS, env.s.createThrottle(0), false, { skipVideos: true });
+  eq('Only images: image and GIF download into PIC', env.started, ['PIC/a.jpg', 'PIC/anim.gif']);
+  env = loadBackground();
+  await env.s.downloadTabImages(TAB, { title: 'x', images: mixed }, PATHS, env.s.createThrottle(0), false, { skipImages: true, gifAsVideo: true });
+  eq('Only videos + GIF as video: clip and GIF download into MOV', env.started, ['MOV/clip.mp4', 'MOV/anim.gif']);
+  env = loadBackground();
+  await env.s.downloadTabImages(TAB, { title: 'x', images: mixed.slice(0, 1) }, PATHS, env.s.createThrottle(0), false, { skipImages: true });
+  eq('a tab with only filtered-out kinds is skipped with the reason', [lastRow(env.broadcasts).status, lastRow(env.broadcasts).reason, env.started.length],
+    ['skipped', 'images', 0]);
 
   section('background: messages, throttle, ETA, keepalive');
   env = loadBackground();
@@ -274,7 +290,7 @@ function loadParsers({ fastTimers = false } = {}) {
   section('settings: per gallery');
   env = loadBackground();
   const GS = env.s.GALLERY_SETTINGS;
-  const DEF = { rateLimit: 0.5, skipDownloaded: true, preferPreview: false, skipVideos: false,
+  const DEF = { rateLimit: 0.5, skipDownloaded: true, preferPreview: false, gifAsVideo: false,
     expandGalleries: false, galleryPaginate: true, batchSize: 10 };
   eq('fresh install: every gallery starts from the same defaults',
     ['artstation.com', 'deviantart.com', 'pinterest.com'].map((g) => GS.forGallery({}, g)), [DEF, DEF, DEF]);
@@ -286,25 +302,40 @@ function loadParsers({ fastTimers = false } = {}) {
     GS.forGallery({ gallerySettings: { 'deviantart.com': { skipDownloaded: false, rateLimit: 0 } } }, 'deviantart.com'),
     { ...DEF, skipDownloaded: false, rateLimit: 0 });
 
+  const MF = env.s.MEDIA_FILTER;
+  eq('media filter: fresh install is Images & videos; a saved choice is kept',
+    [MF.resolve({}), MF.resolve({ mediaFilter: 'videos' }), MF.resolve({ mediaFilter: 'bogus' })], ['all', 'videos', 'all']);
+  eq('media filter: a ticked 1.1.1 "Skip videos" for the selected gallery becomes Only images', [
+    MF.resolve({ gallery: 'pinterest.com', gallerySettings: { 'pinterest.com': { skipVideos: true } } }),
+    MF.resolve({ gallery: 'deviantart.com', gallerySettings: { 'pinterest.com': { skipVideos: true } } }),
+    MF.resolve({ skipVideos: true }),
+    MF.resolve({ mediaFilter: 'all', gallery: 'pinterest.com', gallerySettings: { 'pinterest.com': { skipVideos: true } } })],
+    ['images', 'all', 'images', 'all']);
+
   const runArgs = async (local) => {
     const e = loadBackground({ local });
     let args = null;
     e.s.downloadImagesSequentially = (...a) => { args = a; return Promise.resolve(); };
     await e.ask({ command: 'scan-all-tabs' });
     await new Promise(setImmediate);
-    // (tabs, folder, paths, rateLimit, gallery, maxDate, skipDownloaded, preferPreview, expand, paginate, batch, skipVideos)
+    // (tabs, folder, paths, rateLimit, gallery, maxDate, skipDownloaded, preferPreview, expand, paginate, batch, kinds)
     return args && args.slice(3);
   };
-  const perGalleryStore = { gallery: 'pinterest.com', gallerySettings: {
-    'pinterest.com': { rateLimit: 2, skipDownloaded: false, expandGalleries: true, skipVideos: true },
+  const ALL = { skipImages: false, skipVideos: false, gifAsVideo: false };
+  const perGalleryStore = { gallery: 'pinterest.com', mediaFilter: 'all', gallerySettings: {
+    'pinterest.com': { rateLimit: 2, skipDownloaded: false, expandGalleries: true, gifAsVideo: true },
     'deviantart.com': { rateLimit: 1, preferPreview: true, batchSize: 3 } } };
   eq('a run uses the selected gallery\'s settings (Pinterest)', await runArgs(perGalleryStore),
-    [2, 'pinterest.com', '', false, false, true, true, 10, true]);
+    [2, 'pinterest.com', '', false, false, true, true, 10, { ...ALL, gifAsVideo: true }]);
   eq('...and switching the gallery switches them (DeviantArt)', await runArgs({ ...perGalleryStore, gallery: 'deviantart.com' }),
-    [1, 'deviantart.com', '', true, true, false, true, 3, false]);
+    [1, 'deviantart.com', '', true, true, false, true, 3, ALL]);
+  eq('the toolbar media filter applies to every gallery', [
+    (await runArgs({ ...perGalleryStore, mediaFilter: 'videos' }))[8],
+    (await runArgs({ ...perGalleryStore, gallery: 'deviantart.com', mediaFilter: 'images' }))[8]],
+    [{ skipImages: true, skipVideos: false, gifAsVideo: true }, { skipImages: false, skipVideos: true, gifAsVideo: false }]);
   eq('not yet migrated install: the old shared values still apply',
-    await runArgs({ gallery: 'artstation.com', skipDownloaded: false, expandGalleries: true }),
-    [0.5, 'artstation.com', '', false, false, true, true, 10, false]);
+    await runArgs({ gallery: 'artstation.com', skipDownloaded: false, expandGalleries: true, skipVideos: true }),
+    [0.5, 'artstation.com', '', false, false, true, true, 10, { ...ALL, skipVideos: true }]);
 
   section('background: toolbar icon - side panel primary, popup fallback');
   env = loadBackground({ sidePanel: 'ok' });
@@ -326,7 +357,7 @@ function loadParsers({ fastTimers = false } = {}) {
     pageReply);
   eq('page fetch executes in sender tab MAIN world with requested URL',
     [env.scriptCalls[0].target, env.scriptCalls[0].world, env.scriptCalls[0].args],
-    [{ tabId: 42 }, 'MAIN', ['https://www.artstation.com/projects/ABC.json']]);
+    [{ tabId: 42 }, 'MAIN', ['https://www.artstation.com/projects/ABC.json', {}]]);
   eq('page fetch from the panel (no sender tab) is refused',
     await env.ask({ command: 'page-fetch', url: 'https://www.artstation.com/projects/ABC.json' }),
     { error: 'Command not allowed from this sender' });
@@ -594,7 +625,7 @@ function loadParsers({ fastTimers = false } = {}) {
     + '</body></html>';
   const videoPinDoc = mkPinDoc({ html: videoHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
   eq('video pin prefers expMp4 720w over poster image',
-    pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/').map((i) => ({ url: i.imageUrl, kind: i.kind })),
+    (await pinterest.extractImageUrls(videoPinDoc, 'https://www.pinterest.com/pin/456/')).map((i) => ({ url: i.imageUrl, kind: i.kind })),
     [{ url: 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4', kind: 'video' }]);
 
   // 1b. Same video offered in multiple codecs/sizes collapses to one best URL.
@@ -605,7 +636,7 @@ function loadParsers({ fastTimers = false } = {}) {
     + '</body></html>';
   const codecPinDoc = mkPinDoc({ html: codecVariantsHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
   eq('single video with multiple codec/size variants returns one best URL',
-    pinterest.extractImageUrls(codecPinDoc, 'https://www.pinterest.com/pin/111/').map((i) => i.imageUrl),
+    (await pinterest.extractImageUrls(codecPinDoc, 'https://www.pinterest.com/pin/111/')).map((i) => i.imageUrl),
     ['https://v1.pinimg.com/videos/iht/expMp4/5b/5d/0f/hash123_720w.mp4']);
 
   // 1c. Multiple distinct videos are returned (one best-quality item each).
@@ -617,25 +648,25 @@ function loadParsers({ fastTimers = false } = {}) {
     + '</body></html>';
   const multiVideoPinDoc = mkPinDoc({ html: multiVideoHtml, og: 'https://i.pinimg.com/736x/00/00/00/poster.jpg' });
   eq('multi-video pin returns best quality for each distinct video',
-    pinterest.extractImageUrls(multiVideoPinDoc, 'https://www.pinterest.com/pin/789/').map((i) => i.imageUrl).sort(),
+    (await pinterest.extractImageUrls(multiVideoPinDoc, 'https://www.pinterest.com/pin/789/')).map((i) => i.imageUrl).sort(),
     ['https://v1.pinimg.com/videos/iht/expMp4/a1/b2/c3/abc123_720w.mp4', 'https://v1.pinimg.com/videos/iht/expMp4/e4/63/79/e46379418e1015e4a45111cf05361c00_720w.mp4']);
 
   // 2. og:image is used for static pins.
   const ogPin = mkPinDoc({ og: 'https://i.pinimg.com/736x/00/00/00/og.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
   eq('og:image wins over closeup selector for static pin',
-    pinterest.extractImageUrls(ogPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    (await pinterest.extractImageUrls(ogPin, 'https://www.pinterest.com/pin/123/')).map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/og.jpg']);
 
   // 3. Live DOM closeup hook is a fallback when og:image is missing.
   const hookPin = mkPinDoc({ closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/dom.jpg', src: 'https://i.pinimg.com/736x/00/00/00/dom.jpg' } });
   eq('closeup hook fallback works',
-    pinterest.extractImageUrls(hookPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    (await pinterest.extractImageUrls(hookPin, 'https://www.pinterest.com/pin/123/')).map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/dom.jpg']);
 
   // 4. Non-pinimg URLs are rejected and fall back to the next source.
   const badOgPin = mkPinDoc({ og: 'https://evil.com/img.jpg', closeup: { currentSrc: 'https://i.pinimg.com/736x/00/00/00/good.jpg', src: 'https://i.pinimg.com/736x/00/00/00/good.jpg' } });
   eq('non-pinimg og:image is ignored',
-    pinterest.extractImageUrls(badOgPin, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    (await pinterest.extractImageUrls(badOgPin, 'https://www.pinterest.com/pin/123/')).map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/good.jpg']);
 
   // 5. Largest visible image fallback.
@@ -650,7 +681,7 @@ function loadParsers({ fastTimers = false } = {}) {
     documentElement: { outerHTML: '' },
   };
   eq('largest visible image fallback',
-    pinterest.extractImageUrls(largestPinDoc, 'https://www.pinterest.com/pin/123/').map((i) => i.imageUrl),
+    (await pinterest.extractImageUrls(largestPinDoc, 'https://www.pinterest.com/pin/123/')).map((i) => i.imageUrl),
     ['https://i.pinimg.com/736x/00/00/00/big.jpg']);
 
   // Board/profile pages are now treated as indexes.
@@ -702,7 +733,7 @@ function loadParsers({ fastTimers = false } = {}) {
     },
     images: [smallAvatar, boardImg1, boardImg2],
   };
-  const boardResult = pinterest.extractIndexLinks(boardDoc, 'https://www.pinterest.com/someuser/wallpapers/', {});
+  const boardResult = (await pinterest.extractIndexLinks(boardDoc, 'https://www.pinterest.com/someuser/wallpapers/', {}));
   eq('board page extracts large pinimg images before more-ideas heading',
     boardResult && boardResult.images ? boardResult.images.map((i) => i.imageUrl) : [],
     ['https://i.pinimg.com/736x/aa/aa/aa/pin1.jpg', 'https://i.pinimg.com/736x/bb/bb/bb/pin2.jpg']);
@@ -715,7 +746,7 @@ function loadParsers({ fastTimers = false } = {}) {
     querySelectorAll: (sel) => (sel.includes('div') ? [wrapperDiv, moreIdeasHeading] : []),
   };
   eq('page wrapper containing "más ideas" text is not used as separator',
-    (pinterest.extractIndexLinks(wrapperDoc, 'https://www.pinterest.com/someuser/wallpapers/', {}).images || []).length, 2);
+    ((await pinterest.extractIndexLinks(wrapperDoc, 'https://www.pinterest.com/someuser/wallpapers/', {})).images || []).length, 2);
 
   section('parsers: ArtStation');
   // Shapes mirror real /projects/{hash}.json, /users/{name}/projects.json and
@@ -780,7 +811,8 @@ function loadParsers({ fastTimers = false } = {}) {
       ['video', 'https://cdn.artstation.com/p/video_sources/002/000/980/clip.mp4'],
       ['image', `${CDN}/images/images/000/000/5/4k/someartist-pic5.jpg?1700000000`],
     ]);
-  eq('clip gets a unique filename (artist_asset_name)', multiItems[1].filename, 'someartist_3_clip.mp4');
+  eq('clip gets a unique filename (asset id + name); the artist is reported separately',
+    [multiItems[1].filename, multiItems.map((i) => i.author)], ['3_clip.mp4', ['someartist', 'someartist', 'someartist']]);
   eq('artwork carries its published date', multiItems[0].pageDate, '2024-10-08');
 
   const genericShare = 'https://www.artstation.com/assets/share-explore.jpg';
@@ -898,6 +930,79 @@ function loadParsers({ fastTimers = false } = {}) {
   }, fetchLog) });
   eq('a malformed project id is never put into a request', [badHash.images.length, fetchLog.length], [0, 1]);
 
+  section('file names: "_by_{author}" for ArtStation and Pinterest');
+  const cn = loadContent(true, () => Promise.resolve());
+  eq('author appended to the stem, extension kept', [
+    cn.itemFilename({ imageUrl: `${CDN}/images/images/000/000/1/4k/someartist-pic1.jpg?1700000000`, author: 'someartist' }),
+    cn.itemFilename({ imageUrl: 'https://cdn.artstation.com/p/video_sources/1/clip.mp4', filename: '3_clip.mp4', author: 'someartist' }),
+    cn.itemFilename({ imageUrl: 'https://i.pinimg.com/736x/8f/95/cf/8f95cf0377c08421d1fad420150f0ac1.jpg', author: 'nmicreative' }),
+  ], ['someartist-pic1_by_someartist.jpg', '3_clip_by_someartist.mp4', '8f95cf0377c08421d1fad420150f0ac1_by_nmicreative.jpg']);
+  eq('no author (e.g. DeviantArt, or unknown) -> name unchanged', [
+    cn.itemFilename({ imageUrl: 'https://images-wixmp-x.wixmp.com/f/u/x.jpg', filename: 'barn_by_who_dmfgrtd-fullview.jpg' }),
+    cn.itemFilename({ imageUrl: 'https://i.pinimg.com/736x/a.jpg', author: '' })],
+    ['barn_by_who_dmfgrtd-fullview.jpg', 'a.jpg']);
+  eq('author made file-name safe, never doubled', [
+    cn.itemFilename({ imageUrl: 'https://i.pinimg.com/736x/a.jpg', author: '../We ird/Name' }),
+    cn.itemFilename({ imageUrl: 'https://i.pinimg.com/736x/a.jpg', author: 'Rénée.Ж' }),
+    cn.itemFilename({ imageUrl: 'https://i.pinimg.com/736x/a.jpg', filename: 'a_by_someone.jpg', author: 'someone' })],
+    ['a_by_We_ird_Name.jpg', 'a_by_Rénée_Ж.jpg', 'a_by_someone.jpg']);
+
+  // Pinterest: the creator comes from Pinterest's own /resource/ API, called in the tab.
+  const PI = loadParsers({ fastTimers: true });
+  const pinParser = PI.GALLERY_PARSERS['pinterest.com'];
+  const PIN = PI.PINTEREST_INTERNALS;
+  eq('creator, not the saver: native_creator, then attribution, then origin pinner; never the pinner alone', [
+    PIN.creatorOf({ native_creator: { username: 'maker' }, origin_pinner: { username: 'o' }, pinner: { username: 'saver' } }),
+    PIN.creatorOf({ closeup_attribution: { username: 'attr' }, pinner: { username: 'saver' } }),
+    PIN.creatorOf({ origin_pinner: { username: 'orig' }, pinner: { username: 'saver' } }),
+    PIN.creatorOf({ pinner: { username: 'saver' } })], ['maker', 'attr', 'orig', '']);
+  const apiCalls = [];
+  const apiFetch = (routes) => (url, init) => {
+    apiCalls.push({ url, headers: init && init.headers });
+    const u = new URL(url);
+    const body = routes[u.pathname];
+    const data = JSON.parse(u.searchParams.get('data'));
+    const reply = typeof body === 'function' ? body(data.options) : body;
+    return Promise.resolve(reply === undefined ? { ok: false, status: 404 }
+      : { ok: true, status: 200, json: () => Promise.resolve({ resource_response: reply }) });
+  };
+  const pinDocOg = mkPinDoc({ og: 'https://i.pinimg.com/736x/8f/95/cf/8f95cf0377c08421d1fad420150f0ac1.jpg' });
+  const withCreator = await pinParser.extractImageUrls(pinDocOg, 'https://es.pinterest.com/pin/112097478221971522/', { fetch: apiFetch({
+    '/resource/PinResource/get/': { data: { id: '112097478221971522', native_creator: { username: 'nmicreative' }, pinner: { username: 'bhawinjagad' } } } }) });
+  eq('pin page: items carry the creator', withCreator.map((i) => [i.imageUrl, i.author]),
+    [['https://i.pinimg.com/736x/8f/95/cf/8f95cf0377c08421d1fad420150f0ac1.jpg', 'nmicreative']]);
+  eq('pin page: one same-origin PinResource request with the app\'s headers', [apiCalls.length, new URL(apiCalls[0].url).origin,
+    JSON.parse(new URL(apiCalls[0].url).searchParams.get('data')).options.id, apiCalls[0].headers['X-Pinterest-PWS-Handler']],
+    [1, 'https://es.pinterest.com', '112097478221971522', 'www/pin/[id].js']);
+  eq('pin page: API unavailable -> same items, no author', (await pinParser.extractImageUrls(pinDocOg,
+    'https://www.pinterest.com/pin/1/', { fetch: apiFetch({}) })).map((i) => i.author), [undefined]);
+
+  apiCalls.length = 0;
+  const feedPin = (id, hash, creator) => ({ type: 'pin', id, native_creator: creator && { username: creator },
+    pinner: { username: 'boardowner' }, images: { '236x': { url: `https://i.pinimg.com/236x/aa/bb/cc/${hash}.jpg` },
+      '736x': { url: `https://i.pinimg.com/736x/aa/bb/cc/${hash}.jpg` } } });
+  const boardImgs = ['h1', 'h2', 'h3'].map((h) => ({ currentSrc: `https://i.pinimg.com/236x/aa/bb/cc/${h}.jpg`, naturalWidth: 236, naturalHeight: 300, alt: '' }));
+  const boardDoc2 = { querySelector: () => null, querySelectorAll: () => [], images: boardImgs };
+  const boardOut = await pinParser.extractIndexLinks(boardDoc2, 'https://www.pinterest.com/someuser/wallpapers/', { fetch: apiFetch({
+    '/resource/BoardResource/get/': { data: { id: 'B1' } },
+    '/resource/BoardFeedResource/get/': (o) => (o.bookmarks
+      ? { data: [feedPin('3', 'h3', null), { type: 'story' }], bookmark: '-end-' }
+      : { data: [feedPin('1', 'h1', 'maker1'), feedPin('2', 'h2', 'maker2')], bookmark: 'NEXT' }) }) });
+  eq('board: each pin gets its own creator (matched by image hash); unknown creator -> no author',
+    boardOut.images.map((i) => [i.imageUrl.split('/').pop(), i.author]), [['h1.jpg', 'maker1'], ['h2.jpg', 'maker2'], ['h3.jpg', undefined]]);
+  eq('board: board id looked up, feed paged by bookmark', apiCalls.map((c) => new URL(c.url).pathname.split('/')[2]),
+    ['BoardResource', 'BoardFeedResource', 'BoardFeedResource']);
+  apiCalls.length = 0;
+  await pinParser.extractIndexLinks(boardDoc2, 'https://www.pinterest.com/someuser/', { fetch: apiFetch({}) });
+  eq('profile page: no board feed requests', apiCalls.length, 0);
+
+  env = loadBackground({ scriptResult: { ok: true, status: 200, body: '{}' } });
+  await env.ask({ command: 'page-fetch', url: 'https://www.pinterest.com/resource/PinResource/get/?data=x',
+    headers: { Accept: 'application/json', 'X-Pinterest-PWS-Handler': 'www/pin/[id].js', Cookie: 'a=b', Authorization: 'x', 'X-Requested-With': 'a\r\nInjected: 1' } },
+    { id: EXT_ID, tab: { id: 8, url: 'https://www.pinterest.com/pin/1/' } });
+  eq('page-fetch passes only allow-listed, single-line headers', env.scriptCalls[0].args[1],
+    { Accept: 'application/json', 'X-Pinterest-PWS-Handler': 'www/pin/[id].js' });
+
   section('security: parsers accept only their own media hosts');
   // ArtStation: a player page or clip file on another host is never fetched
   // or returned, and a %2F in a clip name cannot create a folder.
@@ -936,15 +1041,15 @@ function loadParsers({ fastTimers = false } = {}) {
     + 'http://v1.pinimg.com/videos/d.mp4 '
     + '</div></body></html>';
   eq('Pinterest: crafted video URLs in page text are all ignored',
-    pinterest.extractImageUrls(mkPinDoc({ html: evilHtml }), 'https://www.pinterest.com/pin/456/'), []);
+    (await pinterest.extractImageUrls(mkPinDoc({ html: evilHtml }), 'https://www.pinterest.com/pin/456/')), []);
   eq('Pinterest: ...while a real pinimg video next to them is still found',
-    pinterest.extractImageUrls(mkPinDoc({ html: evilHtml.replace('</div>', ` ${realVideo}</div>`) }),
-      'https://www.pinterest.com/pin/456/').map((i) => i.imageUrl), [realVideo]);
+    (await pinterest.extractImageUrls(mkPinDoc({ html: evilHtml.replace('</div>', ` ${realVideo}</div>`) }),
+      'https://www.pinterest.com/pin/456/')).map((i) => i.imageUrl), [realVideo]);
   eq('Pinterest: a <video> on another host is ignored',
-    pinterest.extractImageUrls(mkPinDoc({ videos: [{ currentSrc: 'https://evil.example/v.mp4', querySelectorAll: () => [] }] }),
-      'https://www.pinterest.com/pin/456/'), []);
+    (await pinterest.extractImageUrls(mkPinDoc({ videos: [{ currentSrc: 'https://evil.example/v.mp4', querySelectorAll: () => [] }] }),
+      'https://www.pinterest.com/pin/456/')), []);
   eq('Pinterest: og:image on another host is ignored',
-    pinterest.extractImageUrls(mkPinDoc({ og: 'https://evil.example/a.jpg' }), 'https://www.pinterest.com/pin/456/'), []);
+    (await pinterest.extractImageUrls(mkPinDoc({ og: 'https://evil.example/a.jpg' }), 'https://www.pinterest.com/pin/456/')), []);
 
   // DeviantArt: media in the page state must be on DeviantArt's file hosts.
   const daEvil = (b, baseUri) => ({ '@@entities': {
@@ -961,6 +1066,18 @@ function loadParsers({ fastTimers = false } = {}) {
   eq('DeviantArt: real wixmp video is kept', daParser.parseDeviationHtml(
     `window.__INITIAL_STATE__ = JSON.parse("${JSON.stringify(daEvil('https://wixmp-ed30a86b8c4ca887773594c2.wixmp.com/v/mp4/u/d.mp4', 'https://images-wixmp-x.wixmp.com/f/p.jpg')).replace(/"/g, '\\"')}");`,
     'https://www.deviantart.com/a/art/T-9').images.map((i) => i.imageUrl), ['https://wixmp-ed30a86b8c4ca887773594c2.wixmp.com/v/mp4/u/d.mp4']);
+
+  section('panel: theme toggle and toolbar controls');
+  const panelHtml = fs.readFileSync(path.join(ROOT, 'src/sidebar.html'), 'utf8');
+  const themeJs = fs.readFileSync(path.join(ROOT, 'src/theme.js'), 'utf8');
+  eq('theme toggle is empty in the markup (theme.js draws the SVG icon)',
+    /<button id="themeToggle"[^>]*><\/button>/.test(panelHtml), true);
+  eq('theme.js builds the icon with createElementNS, no innerHTML or emoji',
+    [themeJs.includes('createElementNS'), /innerHTML|\\u2600|\\ud83c/.test(themeJs)], [true, false]);
+  eq('media selector offers all / images / videos; Skip videos checkbox is gone',
+    [(panelHtml.match(/<select id="mediaFilterSelect"[\s\S]*?<\/select>/) || [''])[0].match(/value="(\w+)"/g),
+     panelHtml.includes('id="skipVideos"'), panelHtml.includes('id="gifAsVideo"')],
+    [['value="all"', 'value="images"', 'value="videos"'], false, true]);
 
   section('manifests: minimal permissions');
   const GALLERY_HOSTS = ['https://*.artstation.com/*', 'https://*.deviantart.com/*', 'https://*.pinterest.com/*'];

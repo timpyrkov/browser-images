@@ -232,6 +232,121 @@
     return images.length ? images : null;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Author: the pin's original creator, from Pinterest's own web API    */
+  /* ------------------------------------------------------------------ */
+  // Pinterest's web app reads pins and boards from same-origin /resource/
+  // endpoints. Each pin there names its original creator (native_creator /
+  // closeup_attribution / origin_pinner) separately from the person who saved
+  // it (pinner), so the creator - not the board owner - is the author. The
+  // requests run from inside the Pinterest tab, like the app's own.
+
+  const BOARD_FEED_MAX_PAGES = 10;   // 25 pins per page
+  const BOARD_FEED_GAP_MS = 400;
+
+  function pageFetch() {
+    /* global content */
+    if (typeof content !== 'undefined' && content && typeof content.fetch === 'function') {
+      return content.fetch.bind(content);
+    }
+    if (global && typeof global.__BI_PAGE_FETCH__ === 'function') return global.__BI_PAGE_FETCH__;
+    return fetch.bind(global);
+  }
+
+  async function resourceGet(origin, resource, sourceUrl, handler, dataOptions, options = {}) {
+    const doFetch = options.fetch || pageFetch();
+    const url = `${origin}/resource/${resource}/get/?source_url=${encodeURIComponent(sourceUrl)}`
+      + `&data=${encodeURIComponent(JSON.stringify({ options: dataOptions, context: {} }))}`;
+    const response = await doFetch(url, {
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Pinterest-PWS-Handler': handler,
+        'X-Pinterest-Source-Url': sourceUrl,
+      },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${resource}`);
+    const json = await response.json();
+    return (json && json.resource_response) || {};
+  }
+
+  /** The pin's original creator, or '' (the saver is not the author). */
+  function creatorOf(pin) {
+    if (!pin) return '';
+    for (const key of ['native_creator', 'closeup_attribution', 'origin_pinner']) {
+      const username = pin[key] && pin[key].username;
+      if (username) return String(username);
+    }
+    return '';
+  }
+
+  function pinIdFrom(href) {
+    const m = String(href || '').match(/\/pin\/(\d+)/);
+    return m ? m[1] : null;
+  }
+
+  /** Image hash in a pinimg URL (/236x/aa/bb/cc/HASH.jpg), shared by every size. */
+  function imageHash(url) {
+    try {
+      return (new URL(url).pathname.split('/').pop() || '').replace(/\.[a-z0-9]+$/i, '').toLowerCase();
+    } catch (error) {
+      return '';
+    }
+  }
+
+  async function pinAuthor(href, options = {}) {
+    const id = pinIdFrom(href);
+    if (!id) return '';
+    try {
+      const origin = new URL(href).origin;
+      const res = await resourceGet(origin, 'PinResource', `/pin/${id}/`, 'www/pin/[id].js',
+        { id, field_set_key: 'detailed' }, options);
+      return creatorOf(res.data);
+    } catch (error) {
+      console.warn('[Pinterest] Pin author unavailable:', error.message);
+      return '';
+    }
+  }
+
+  /** image hash -> creator for the pins of a board (/{user}/{board}/). */
+  async function boardAuthors(href, options = {}) {
+    const authors = new Map();
+    try {
+      const url = new URL(href);
+      const parts = url.pathname.split('/').filter(Boolean);
+      if (parts.length !== 2) return authors;            // profiles: no board feed
+      const [username, slug] = parts.map((p) => decodeURIComponent(p));
+      const sourceUrl = `/${parts[0]}/${parts[1]}/`;
+      const handler = 'www/[username]/[slug].js';
+      const board = await resourceGet(url.origin, 'BoardResource', sourceUrl, handler,
+        { username, slug, field_set_key: 'detailed' }, options);
+      const boardId = board.data && board.data.id;
+      if (!boardId) return authors;
+      let bookmark = null;
+      for (let page = 0; page < BOARD_FEED_MAX_PAGES; page++) {
+        if (page) await new Promise((resolve) => setTimeout(resolve, BOARD_FEED_GAP_MS));
+        const feed = await resourceGet(url.origin, 'BoardFeedResource', sourceUrl, handler, {
+          board_id: boardId, board_url: sourceUrl, page_size: 25, field_set_key: 'react_grid_pin',
+          ...(bookmark ? { bookmarks: [bookmark] } : {}),
+        }, options);
+        for (const pin of feed.data || []) {
+          const author = pin && pin.type === 'pin' ? creatorOf(pin) : '';
+          if (!author) continue;
+          for (const image of Object.values(pin.images || {})) {
+            const hash = image && imageHash(image.url);
+            if (hash) authors.set(hash, author);
+          }
+        }
+        bookmark = feed.bookmark;
+        if (!bookmark || bookmark === '-end-' || !(feed.data || []).length) break;
+      }
+    } catch (error) {
+      console.warn('[Pinterest] Board authors unavailable:', error.message);
+    }
+    return authors;
+  }
+
   function createPinterestParser() {
     return {
       domain: 'pinterest.com',
@@ -250,48 +365,66 @@
       extractPageDate(doc) {
         return helpers.getPageDate ? helpers.getPageDate(doc) : null;
       },
-      extractIndexLinks(doc, href) {
+      async extractIndexLinks(doc, href, options = {}) {
         const images = extractGridImages(doc, href);
-        return images ? { images } : [];
+        if (!images) return [];
+        // Board pins: each image's creator from the board feed, matched by
+        // image hash. Pins it cannot match keep their plain names.
+        const authors = await boardAuthors(href, options);
+        return { images: images.map((item) => withAuthor(item, authors.get(imageHash(item.imageUrl)))) };
       },
-      extractImageUrls(doc, href) {
-        if (!isPinPage(href || (doc.location && doc.location.pathname))) return [];
-        const title = doc.title ? doc.title.replace(/\s*\|\s*Pinterest\s*$/i, '').trim() : '';
-
-        // 1. Video / animated pins. Pinterest embeds MP4 URLs in the HTML even in
-        // the app-shell state. Group variants by base video ID and return the
-        // best quality for each distinct video.
-        const domVideos = closeupVideoUrls(doc);
-        const htmlVideos = videoUrlsFromHtml(doc);
-        const allVideos = [...new Set([...domVideos, ...htmlVideos])].filter(isPinVideoUrl);
-        const bestVideos = uniqueBestVideoUrls(allVideos);
-        if (bestVideos.length) {
-          return bestVideos.map((url) => ({ imageUrl: url, kind: 'video', title }));
-        }
-
-        // 2. Canonical og:image. This is the most reliable source for a full
-        // page load and downloads successfully with the browser's downloader.
-        const og = doc.querySelector("meta[property='og:image']");
-        const ogUrl = resolve(og && og.getAttribute('content'));
-        if (ogUrl && isPinMediaUrl(ogUrl)) {
-          return [{ imageUrl: ogUrl, kind: 'image', title }];
-        }
-
-        // 3. Pinterest's live closeup hook. Used when og:image is missing (e.g.
-        // in-app navigation where the <head> was not rewritten).
-        for (const selector of CLOSEUP_SELECTORS) {
-          const url = resolve(imageIn(doc.querySelector(selector)));
-          if (url && isPinMediaUrl(url)) return [{ imageUrl: url, kind: 'image', title }];
-        }
-
-        // 4. Largest visible pinimg image.
-        const largest = largestPinImage(doc);
-        if (largest) return [{ imageUrl: largest, kind: 'image', title }];
-
-        return [];
+      async extractImageUrls(doc, href, options = {}) {
+        const media = pinMedia(doc, href);
+        if (!media.length) return media;
+        const author = await pinAuthor(href || (doc.location && doc.location.href), options);
+        return media.map((item) => withAuthor(item, author));
       },
     };
   }
+
+  function withAuthor(item, author) {
+    return author ? { ...item, author } : item;
+  }
+
+  /** The pin page's own media: videos first, then the closeup image. */
+  function pinMedia(doc, href) {
+    if (!isPinPage(href || (doc.location && doc.location.pathname))) return [];
+    const title = doc.title ? doc.title.replace(/\s*\|\s*Pinterest\s*$/i, '').trim() : '';
+
+    // 1. Video / animated pins. Pinterest embeds MP4 URLs in the HTML even in
+    // the app-shell state. Group variants by base video ID and return the
+    // best quality for each distinct video.
+    const domVideos = closeupVideoUrls(doc);
+    const htmlVideos = videoUrlsFromHtml(doc);
+    const allVideos = [...new Set([...domVideos, ...htmlVideos])].filter(isPinVideoUrl);
+    const bestVideos = uniqueBestVideoUrls(allVideos);
+    if (bestVideos.length) {
+      return bestVideos.map((url) => ({ imageUrl: url, kind: 'video', title }));
+    }
+
+    // 2. Canonical og:image. This is the most reliable source for a full
+    // page load and downloads successfully with the browser's downloader.
+    const og = doc.querySelector("meta[property='og:image']");
+    const ogUrl = resolve(og && og.getAttribute('content'));
+    if (ogUrl && isPinMediaUrl(ogUrl)) {
+      return [{ imageUrl: ogUrl, kind: 'image', title }];
+    }
+
+    // 3. Pinterest's live closeup hook. Used when og:image is missing (e.g.
+    // in-app navigation where the <head> was not rewritten).
+    for (const selector of CLOSEUP_SELECTORS) {
+      const url = resolve(imageIn(doc.querySelector(selector)));
+      if (url && isPinMediaUrl(url)) return [{ imageUrl: url, kind: 'image', title }];
+    }
+
+    // 4. Largest visible pinimg image.
+    const largest = largestPinImage(doc);
+    if (largest) return [{ imageUrl: largest, kind: 'image', title }];
+
+    return [];
+  }
+
+  global.PINTEREST_INTERNALS = { creatorOf, imageHash, pinAuthor, boardAuthors };
 
   if (global && typeof global.registerGallery === 'function') {
     global.registerGallery(createPinterestParser());

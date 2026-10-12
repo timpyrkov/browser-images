@@ -241,7 +241,6 @@
       width: 32px;
       height: 32px;
       box-sizing: border-box;
-      font-size: 14px;
     }
 
     .gallery-settings-panel {
@@ -536,6 +535,12 @@
         </svg>
       </button>
 
+      <select id="mediaFilterSelect" class="toolbar-group-gap" title="Media to download">
+        <option value="all">Images &amp; videos</option>
+        <option value="images">Only images</option>
+        <option value="videos">Only videos</option>
+      </select>
+
       <div class="date-picker toolbar-group-gap" id="maxDatePicker">
         <input type="text" id="maxDate" class="date-picker-input" placeholder="dd/mm/yyyy" readonly title="Max date back" />
         <div id="maxDateCalendar" class="date-picker-calendar" hidden>
@@ -554,7 +559,7 @@
 
       <button id="downloadBtn" class="btn btn-green btn-sm toolbar-group-gap">Download</button>
 
-      <button id="themeToggle" class="theme-toggle toolbar-group-gap" title="Toggle theme">&#9728;&#65039;</button>
+      <button id="themeToggle" class="theme-toggle toolbar-group-gap" title="Toggle theme"></button>
 
       <div id="gallerySettingsPanel" class="gallery-settings-panel" hidden>
         <div class="form-group">
@@ -574,8 +579,8 @@
           <label id="preferPreviewLabel" for="preferPreview">Prefer preview size</label>
         </div>
         <div class="form-group checkbox-group">
-          <input type="checkbox" id="skipVideos" />
-          <label id="skipVideosLabel" for="skipVideos">Skip videos</label>
+          <input type="checkbox" id="gifAsVideo" />
+          <label id="gifAsVideoLabel" for="gifAsVideo">Save GIF to videos folder</label>
         </div>
         <div class="form-group checkbox-group">
           <input type="checkbox" id="expandGalleries" />

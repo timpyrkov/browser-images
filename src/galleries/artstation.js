@@ -189,24 +189,26 @@
    */
   async function projectMedia(project, getTextFn) {
     const title = project.title || '';
-    const username = (project.user && project.user.username) || 'artstation';
+    // The artist, appended to every file name as "_by_{author}" (content.js).
+    const author = (project.user && project.user.username) || '';
     const media = [];
     // Videos embedded from other sites (YouTube, Vimeo, ...) are not hosted by
     // ArtStation and are not downloaded; counted so the row can say why.
     media.externalVideos = 0;
     for (const asset of project.assets || []) {
       if (asset.asset_type === 'image' && asset.has_image && isArtStationUrl(asset.image_url)) {
-        media.push({ imageUrl: fullSizeImageUrl(asset.image_url), kind: 'image', title });
+        media.push({ imageUrl: fullSizeImageUrl(asset.image_url), kind: 'image', title, author });
       } else if (asset.asset_type === 'video_clip') {
         const embed = embedUrlFromPlayer(asset.player_embedded);
         if (!embed || !isClipPlayerUrl(embed)) continue;
         try {
           const found = bestClipSource(await getTextFn(embed));
           const src = found ? new URL(found, embed).href : null;
-          // Clip files have generic names (a.mp4), so prefix artist and asset.
+          // Clip files have generic names (a.mp4), so prefix the asset id;
+          // the artist follows as "_by_{author}".
           if (src && isClipVideoUrl(src)) {
-            const prefix = sanitizeName(`${username}_${asset.id}`);
-            media.push({ imageUrl: src, kind: 'video', title, filename: `${prefix}_${basename(src)}` });
+            const prefix = sanitizeName(String(asset.id || 'clip'));
+            media.push({ imageUrl: src, kind: 'video', title, author, filename: `${prefix}_${basename(src)}` });
           }
         } catch (error) {
           console.warn('[ArtStation] Could not read video clip', embed, error.message);

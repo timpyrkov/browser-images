@@ -1,6 +1,6 @@
 # Privacy Policy for Browser Images
 
-**Last updated:** 2026-10-07
+**Last updated:** 2026-10-12
 
 ## Summary
 
@@ -31,7 +31,7 @@ When **Skip downloaded** is on, the extension searches the browser's own downloa
 The following are stored locally in your browser's extension storage and never transmitted anywhere:
 
 - Selected gallery, download subfolders, delay between downloads, batch size
-- Max date, skip downloaded / skip videos / prefer preview / whole gallery / follow pages options
+- Max date, media to download (images / videos / both), skip downloaded / prefer preview / GIF folder / whole gallery / follow pages options
 - Interface language and theme
 
 ### Download log
@@ -70,7 +70,7 @@ All requests go directly from your browser to the gallery you are downloading fr
 |---|---|
 | ArtStation | The artwork's and artist's public data (`/projects/…json`, `/users/…/projects.json`), video-clip player pages, and the image/video files (`*.artstation.com`, e.g. `cdna.artstation.com`). Requested from inside your ArtStation tab. |
 | DeviantArt | The individual deviation pages of a gallery or search page (`www.deviantart.com`), and the image/video files (`*.wixmp.com`, legacy `*.deviantart.net`). |
-| Pinterest | Only the image/video files (`*.pinimg.com`) already shown on the pin or board page. |
+| Pinterest | The image/video files (`*.pinimg.com`) shown on the pin or board page, and the pin's or board's public data from Pinterest's own web API (`/resource/…`, the same requests the Pinterest site makes) to read each pin's original creator for the file name. Requested from inside your Pinterest tab. |
 
 Every file address is checked before anything is requested: it must use `https` and belong to the file servers of the gallery the tab is on, as listed above. An address that points anywhere else, for example a link someone typed into a pin description, is refused and never contacted. Saved files always get a plain image or video file name inside your chosen download folder.
 

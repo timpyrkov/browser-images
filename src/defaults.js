@@ -35,8 +35,14 @@ const DEFAULT_SETTINGS = {
   // file. Currently honoured by DeviantArt.
   preferPreview: false,
 
-  // Download only images, leaving videos (mp4/webm/...) alone.
-  skipVideos: false,
+  // What to download, chosen in the toolbar and shared by every gallery:
+  // 'all' (images and videos), 'images' or 'videos'. Replaces the per-gallery
+  // "Skip videos" checkbox of 1.1.1 and earlier.
+  mediaFilter: 'all',
+
+  // Save .gif files to the gallery's videos folder instead of its images
+  // folder; they then also count as videos for the media filter.
+  gifAsVideo: false,
 
   // Expand a gallery / search index tab into its individual deviations and
   // download each of them. Honoured by DeviantArt galleries, Pinterest boards
@@ -59,8 +65,28 @@ const DEFAULT_SETTINGS = {
  * defaults above. Up to 1.1.0 they were single shared keys; those old values
  * are still read as a fallback, so nobody loses their choices on update.
  */
-const GALLERY_SETTING_KEYS = ['rateLimit', 'skipDownloaded', 'preferPreview', 'skipVideos',
+const GALLERY_SETTING_KEYS = ['rateLimit', 'skipDownloaded', 'preferPreview', 'gifAsVideo',
   'expandGalleries', 'galleryPaginate', 'batchSize'];
+
+const MEDIA_FILTERS = ['all', 'images', 'videos'];
+
+/**
+ * The toolbar media filter. Before 1.1.2 there was a "Skip videos" checkbox
+ * instead (shared up to 1.1.0, then per gallery); whoever had it ticked for
+ * the selected gallery starts with "Only images".
+ */
+function mediaFilterFor(stored) {
+  if (stored && MEDIA_FILTERS.includes(stored.mediaFilter)) return stored.mediaFilter;
+  const gallery = (stored && stored.gallery) || DEFAULT_SETTINGS.gallery;
+  const own = stored && stored.gallerySettings && stored.gallerySettings[gallery];
+  const skipVideos = (own && own.skipVideos) ?? (stored && stored.skipVideos);
+  return skipVideos === true ? 'images' : DEFAULT_SETTINGS.mediaFilter;
+}
+
+/** The skip flags a media filter stands for; anything unknown means 'all'. */
+function mediaFilterFlags(filter) {
+  return { skipImages: filter === 'videos', skipVideos: filter === 'images' };
+}
 
 /** One gallery's settings: its own value, else the old shared value, else the default. */
 function gallerySettingsFor(stored, gallery) {
@@ -73,3 +99,4 @@ function gallerySettingsFor(stored, gallery) {
 }
 
 self.GALLERY_SETTINGS = { keys: GALLERY_SETTING_KEYS, forGallery: gallerySettingsFor };
+self.MEDIA_FILTER = { values: MEDIA_FILTERS, resolve: mediaFilterFor, flags: mediaFilterFlags };

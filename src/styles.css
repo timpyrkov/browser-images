@@ -117,8 +117,7 @@
   border-radius: 999px;
   border: 1.5px solid var(--border);
   background: var(--surface);
-  color: var(--foreground);
-  font-size: 15px;
+  color: var(--primary-1);              /* gold sun in the dark theme */
   cursor: pointer;
   flex-shrink: 0;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
@@ -131,14 +130,33 @@
 .theme-toggle:active {
   transform: scale(0.92);
 }
-
-/* Always keep a dark button background regardless of theme, since the
-   moon icon (shown in light theme, to switch back to dark) is barely
-   visible on a light background. */
+/* Main shape of the icon (sun disc / moon) gets a tinted fill. */
+.theme-toggle .theme-icon-fill {
+  fill: currentColor;
+  fill-opacity: 0.85;
+}
+/* Crescent opening to the right (mirrored Lucide moon). theme.js puts
+   class="theme-icon theme-icon-sun|moon" on the <svg>. */
+.theme-toggle .theme-icon-moon {
+  transform: scaleX(-1);
+}
+/* Light theme: same look as the grey settings button (.btn.btn-grey),
+   but staying round. */
 :root[data-theme="light"] .theme-toggle {
-  background: #101010;
-  border-color: #343434;
-  color: #f2f2f1;
+  border-color: var(--neutral-5);
+  background: linear-gradient(135deg, var(--neutral-4), var(--neutral-3));
+  color: var(--foreground);
+  box-shadow: var(--shadow);
+  transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+:root[data-theme="light"] .theme-toggle:hover,
+:root[data-theme="light"] .theme-toggle:focus-visible {
+  border-color: var(--neutral-5);
+  filter: brightness(1.15);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--neutral-6) 50%, transparent);
+}
+:root[data-theme="light"] .theme-toggle .theme-icon-fill {
+  fill-opacity: 0.2;
 }
 
 /* =========================================================================

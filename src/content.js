@@ -31,10 +31,13 @@ function findParser(hostname) {
  * must degrade to the next fallback, never turn the tab into an error.
  */
 if (typeof browser === 'undefined') {
-  self.__BI_PAGE_FETCH__ = async function pageContextFetch(url) {
+  // `options.headers`: a few request headers a gallery's own web API expects
+  // (the background passes only an allow-list of names).
+  self.__BI_PAGE_FETCH__ = async function pageContextFetch(url, options = {}) {
+    const headers = options && options.headers ? options.headers : undefined;
     let reply = null;
     try {
-      reply = await chrome.runtime.sendMessage({ command: 'page-fetch', url });
+      reply = await chrome.runtime.sendMessage({ command: 'page-fetch', url, headers });
     } catch (error) { /* no answer from the background: use a direct fetch */ }
     // A rejection (e.g. a cross-origin URL) is final; only a background that
     // did not answer at all falls back, and then still only to this origin.
@@ -42,7 +45,7 @@ if (typeof browser === 'undefined') {
     if (!reply) {
       const target = new URL(url, location.href);
       if (target.protocol !== 'https:' || target.origin !== location.origin) throw new Error('Cross-origin page fetch rejected');
-      return fetch(target.href, { credentials: 'include' });
+      return fetch(target.href, { credentials: 'include', headers });
     }
     return {
       ok: reply.ok,
@@ -173,6 +176,32 @@ function extractImageFilename(imageUrl) {
   }
 }
 
+/**
+ * Author for a file name: letters, digits, '-' and '_' only (Unicode letters
+ * kept), at most 60 characters. Empty when nothing usable is left.
+ */
+function authorSlug(author) {
+  return String(author || '').normalize('NFC').replace(/[^\p{L}\p{N}_-]+/gu, '_')
+    .replace(/_+/g, '_').replace(/^[_-]+|[_-]+$/g, '').slice(0, 60);
+}
+
+/**
+ * The saved name of one parser item. Galleries that know the artist
+ * (ArtStation, Pinterest) report item.author, which is appended to the stem
+ * as "_by_{author}" - the convention DeviantArt's own file names already
+ * follow. DeviantArt items carry no author here and keep their names as is.
+ */
+function itemFilename(item) {
+  const name = item.filename || extractImageFilename(item.imageUrl);
+  const author = authorSlug(item.author);
+  if (!author) return name;
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  if (stem.toLowerCase().endsWith(`_by_${author.toLowerCase()}`)) return name;
+  return `${stem}_by_${author}${ext}`;
+}
+
 function inferExtensionFromUrl(url) {
   const path = url.pathname.toLowerCase();
   if (path.includes('.png')) return 'png';
@@ -280,7 +309,7 @@ if (!self.__BI_CONTENT_LISTENER__) {
             status: 'found-images',
             images: result.images.map((item) => ({
               imageUrl: item.imageUrl,
-              filename: item.filename || extractImageFilename(item.imageUrl),
+              filename: itemFilename(item),
               title: item.title || title,
             })),
             isMainImageView: true,
@@ -340,7 +369,7 @@ if (!self.__BI_CONTENT_LISTENER__) {
           || (parser ? parser.extractPageDate(document) : null);
         const images = downloadable.map((item) => ({
           imageUrl: item.imageUrl,
-          filename: item.filename || extractImageFilename(item.imageUrl),
+          filename: itemFilename(item),
           title: item.title || title,
         }));
         console.log('[Content] Images detected:', images.length, 'isMainImageView:', isMainImageView, 'pageDate:', pageDate);

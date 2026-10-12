@@ -214,24 +214,36 @@ function normalizeExtension(ext) {
   return lower;
 }
 
-function isVideoFilename(filename) {
-  const ext = filename.split('.').pop();
-  return VIDEO_EXTENSIONS.has(normalizeExtension(ext));
+/**
+ * A file counts as a video by its extension; with the gallery's "Save GIF to
+ * videos folder" option on, a .gif does too, for both the folder and the
+ * toolbar media filter.
+ */
+function isVideoFilename(filename, gifAsVideo = false) {
+  const ext = normalizeExtension(String(filename || '').split('.').pop());
+  return VIDEO_EXTENSIONS.has(ext) || (gifAsVideo && ext === 'gif');
 }
 
 /**
- * Drop videos when the user only wants images. Filtering here rather than in
- * the parsers keeps it one rule for every gallery, and the dropped count is
- * reported as skipped rather than vanishing silently.
+ * Drop the media kinds the toolbar filter switched off ("Only images" /
+ * "Only videos"). Filtering here rather than in the parsers keeps it one rule
+ * for every gallery, and the dropped count is reported as skipped rather than
+ * vanishing silently. `kinds`: { skipImages, skipVideos, gifAsVideo }.
  */
-function withoutVideos(images, skipVideos) {
-  if (!skipVideos) return { keep: images, dropped: 0 };
-  const keep = images.filter((image) => !isVideoFilename(image.filename || ''));
+function filterKinds(images, kinds = {}) {
+  const { skipImages = false, skipVideos = false, gifAsVideo = false } = kinds || {};
+  if (!skipImages && !skipVideos) return { keep: images, dropped: 0 };
+  const keep = images.filter((image) => (isVideoFilename(image.filename, gifAsVideo) ? !skipVideos : !skipImages));
   return { keep, dropped: images.length - keep.length };
 }
 
-function pickSubfolder(filename, galleryPath) {
-  if (isVideoFilename(filename)) {
+/** Row reason for files the media filter dropped. */
+function filteredReason(kinds) {
+  return kinds && kinds.skipImages ? 'images' : 'videos';
+}
+
+function pickSubfolder(filename, galleryPath, gifAsVideo = false) {
+  if (isVideoFilename(filename, gifAsVideo)) {
     return galleryPath?.videos || 'MOV';
   }
   return galleryPath?.images || 'PIC';
@@ -625,7 +637,7 @@ function projectFinish(startedAt, done, total) {
  */
 async function downloadIndexTab(tab, links, ctx) {
   const { parser, galleryPath, throttle, skipDownloaded, preferPreview, maxDate, batchSize,
-    searchQuery, skipVideos, sortOrder } = ctx;
+    searchQuery, kinds, sortOrder } = ctx;
   const cutoffDate = maxDate && sortOrder === 'newest'
     ? shiftDate(maxDate, -EARLY_STOP_GRACE_DAYS) : null;
   let previousDate = null;
@@ -729,14 +741,14 @@ async function downloadIndexTab(tab, links, ctx) {
         continue;
       }
 
-      const { keep: wanted, dropped: droppedVideos } = withoutVideos(parsed.images, skipVideos);
-      if (droppedVideos) {
-        counts.skipped += droppedVideos;
-        skippedReasons.add('videos');
+      const { keep: wanted, dropped: filtered } = filterKinds(parsed.images, kinds);
+      if (filtered) {
+        counts.skipped += filtered;
+        skippedReasons.add(filteredReason(kinds));
       }
       for (const image of wanted) {
         if (isCancelled()) break;
-        const targetFolder = pickSubfolder(image.filename, galleryPath);
+        const targetFolder = pickSubfolder(image.filename, galleryPath, kinds?.gifAsVideo);
         const result = await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded, galleryDomain);
         if (result.status === 'success') {
           counts.downloaded++;
@@ -779,22 +791,24 @@ async function downloadIndexTab(tab, links, ctx) {
  * row for that tab. A tab counts as downloaded when at least one of its
  * images landed, so a partly-duplicate tab still reads as a success.
  */
-async function downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos, policy = null) {
-  const { keep: images, dropped: droppedVideos } = withoutVideos(response.images, skipVideos);
+// `kinds`: { skipImages, skipVideos, gifAsVideo } from the toolbar media filter
+// and the gallery's GIF setting.
+async function downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, kinds = {}, policy = null) {
+  const { keep: images, dropped: filtered } = filterKinds(response.images, kinds);
   const allNames = response.images.map((image) => image.filename).join(', ');
-  const counts = { downloaded: 0, skipped: droppedVideos, error: 0 };
+  const counts = { downloaded: 0, skipped: filtered, error: 0 };
   let thumbUrl = '';
-  let lastReason = droppedVideos ? 'video' : '';
+  let lastReason = filtered ? filteredReason(kinds) : '';
   let lastMessage = '';
   let blockedStreak = 0;
   let abandoned = false;
 
-  // Everything on this tab was a video and videos are switched off.
+  // Everything on this tab is of a kind the media filter switched off.
   if (!images.length) {
     broadcast('download-progress', logItem(tab, 'skipped', {
       title: response.title,
       filename: allNames,
-      reason: droppedVideos ? 'video' : 'nothing to download',
+      reason: filtered ? filteredReason(kinds) : 'nothing to download',
       count: counts.skipped,
     }));
     return;
@@ -817,7 +831,7 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
       total: images.length + unavailable,
     }));
 
-    const targetFolder = pickSubfolder(image.filename, galleryPath);
+    const targetFolder = pickSubfolder(image.filename, galleryPath, kinds?.gifAsVideo);
     const result = policy?.awaitCompletion
       ? await downloadAndSettle(image, targetFolder, skipDownloaded, throttle, galleryDomain)
       : await downloadImage(image.imageUrl, image.filename, targetFolder, skipDownloaded, galleryDomain);
@@ -854,10 +868,10 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
   let count = counts[status];
   let total = images.length;
   // Some items on the page could not be downloaded at all: "Partial (got/all)".
-  // Files already present count as got; videos the user chose to skip do not.
+  // Files already present count as got; files the media filter dropped do not.
   if (unavailable && status !== 'error') {
     status = 'partial';
-    count = counts.downloaded + counts.skipped - droppedVideos;
+    count = counts.downloaded + counts.skipped - filtered;
     total = images.length + unavailable;
     lastMessage = PARTIAL_MESSAGE;
   }
@@ -875,7 +889,7 @@ async function downloadTabImages(tab, response, galleryPath, throttle, skipDownl
 }
 
 // Sequential download with delay
-async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, skipVideos) {
+async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, kinds = {}) {
   console.log('[Download] Starting sequential download process.');
 
   runState.cancelled = false;
@@ -952,7 +966,7 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
             await downloadIndexTab(tab, response.links, {
               parser: registry[domain], galleryPath, throttle,
               skipDownloaded, preferPreview, maxDate, batchSize,
-              searchQuery: response.searchQuery || '', skipVideos,
+              searchQuery: response.searchQuery || '', kinds,
               sortOrder: response.sortOrder || null,
             });
           }
@@ -973,7 +987,7 @@ async function downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitS
               reason: 'not main image view'
             }));
           } else {
-            await downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, skipVideos,
+            await downloadTabImages(tab, response, galleryPath, throttle, skipDownloaded, kinds,
               parser?.downloadPolicy);
           }
         } else if (response && response.status === 'partial') {
@@ -1050,6 +1064,20 @@ async function closeDownloadedTabs() {
 const PANEL_COMMANDS = new Set(['get-run-state', 'reset-log', 'close-downloaded-tabs', 'stop-scan', 'scan-all-tabs']);
 const PAGE_COMMANDS = new Set(['page-state', 'page-fetch', 'harvest-progress']);
 
+/*
+ * Request headers a content script may ask the page-fetch bridge to send: only
+ * the ones a gallery's own web API expects (Pinterest's /resource/ endpoints).
+ * Anything else, and any oversized value, is dropped.
+ */
+const PAGE_FETCH_HEADERS = new Set(['accept', 'x-requested-with', 'x-pinterest-pws-handler', 'x-pinterest-source-url']);
+
+function pageFetchHeaders(headers) {
+  if (!headers || typeof headers !== 'object') return {};
+  return Object.fromEntries(Object.entries(headers).filter(([name, value]) => (
+    PAGE_FETCH_HEADERS.has(String(name).toLowerCase()) && typeof value === 'string' && value.length <= 200
+    && !/[\r\n]/.test(value))));
+}
+
 function isOwnExtension(sender) {
   return !!sender && sender.id === chrome.runtime.id;
 }
@@ -1100,19 +1128,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.scripting.executeScript({
       target: { tabId: sender.tab.id },
       world: 'MAIN',
-      func: async (rawUrl) => {
+      func: async (rawUrl, headers) => {
         try {
           const url = new URL(rawUrl, location.href);
           if (!['http:', 'https:'].includes(url.protocol) || url.origin !== location.origin) {
             return { error: 'Cross-origin page fetch rejected' };
           }
-          const response = await fetch(url.href, { credentials: 'include' });
+          const response = await fetch(url.href, { credentials: 'include', headers });
           return { ok: response.ok, status: response.status, body: await response.text() };
         } catch (error) {
           return { error: error.message };
         }
       },
-      args: [message.url],
+      args: [message.url, pageFetchHeaders(message.headers)],
     }).then((results) => sendResponse(results?.[0]?.result || { error: 'No page-fetch result' }))
       .catch((error) => sendResponse({ error: error.message }));
     return true;
@@ -1190,7 +1218,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // shared keys are read too, as the fallback for a not yet migrated install.
     const perGallery = (typeof GALLERY_SETTINGS !== 'undefined' && GALLERY_SETTINGS) || null;
     const galleryKeys = perGallery ? perGallery.keys : [];
-    chrome.storage.local.get(['folder', 'galleryPaths', 'gallery', 'maxDate', 'gallerySettings', ...galleryKeys], (stored) => {
+    chrome.storage.local.get(['folder', 'galleryPaths', 'gallery', 'maxDate', 'mediaFilter', 'gallerySettings', 'skipVideos', ...galleryKeys], (stored) => {
       if (chrome.runtime.lastError) {
         console.error('Error getting settings:', chrome.runtime.lastError);
         setRunning(false);
@@ -1210,10 +1238,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const expandGalleries = settings.expandGalleries ?? DEFAULT_SETTINGS.expandGalleries;
       const galleryPaginate = settings.galleryPaginate ?? DEFAULT_SETTINGS.galleryPaginate;
       const batchSize = settings.batchSize ?? DEFAULT_SETTINGS.batchSize;
-      const skipVideos = settings.skipVideos ?? DEFAULT_SETTINGS.skipVideos;
+      // Toolbar "Images & videos / Only images / Only videos", shared by every
+      // gallery, plus this gallery's "Save GIF to videos folder".
+      const mediaFilter = typeof MEDIA_FILTER !== 'undefined' ? MEDIA_FILTER.resolve(stored) : 'all';
+      const kinds = {
+        ...(typeof MEDIA_FILTER !== 'undefined' ? MEDIA_FILTER.flags(mediaFilter) : {}),
+        gifAsVideo: settings.gifAsVideo === true,
+      };
       chrome.tabs.query({ currentWindow: true }, (tabs) => {
         console.log(`[Download] Found ${tabs.length} tabs in the current window to scan.`);
-        downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, skipVideos)
+        downloadImagesSequentially(tabs, folder, galleryPaths, rateLimitSeconds, selectedGallery, maxDate, skipDownloaded, preferPreview, expandGalleries, galleryPaginate, batchSize, kinds)
           // An unexpected throw must not leave the run claimed forever.
           .catch((error) => {
             console.error('[Download] Run failed:', error);

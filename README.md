@@ -39,7 +39,14 @@ Third-party embeds (e.g. YouTube videos inside an ArtStation project) are skippe
 - **Max date back** — skip artworks published before a chosen date; gallery walks stop
   early once they pass it.
 - **Skip downloaded** — files already in the browser's download history are not fetched again.
-- **Skip videos** and, on DeviantArt, **Prefer preview size** for smaller files.
+- **Images, videos or both** — a toolbar selector (*Images & videos* / *Only images* /
+  *Only videos*), shared by every gallery.
+- **GIFs with the videos** — optionally, per gallery, save `.gif` files to the videos folder
+  (they then also count as videos for the selector). Off by default.
+- On DeviantArt, **Prefer preview size** for smaller files.
+- **Artist in the file name** — ArtStation and Pinterest files end in `_by_{author}`, like
+  DeviantArt's own names. ArtStation uses the artist's username; Pinterest uses the pin's
+  original creator (not the person who saved it), read from Pinterest's own web API.
 - **Polite, adaptive pacing** — a configurable delay between downloads that grows
   automatically when a site pushes back (HTTP 403/429 or refused downloads), with
   cool-downs and retries; a tab is stopped if the site keeps refusing.
@@ -66,7 +73,8 @@ Third-party embeds (e.g. YouTube videos inside an ArtStation project) are skippe
    are processed.
 4. Optionally adjust the settings (gear icon): folders, delay, whole-gallery mode and the
    other options. Each gallery keeps its own settings, so changing them while DeviantArt is
-   selected does not affect ArtStation or Pinterest. The max date in the toolbar is shared.
+   selected does not affect ArtStation or Pinterest. The media selector and the max date in
+   the toolbar are shared.
 5. Press **Download**. Press **Stop** to cancel a run.
 
 ---

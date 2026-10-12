@@ -13,7 +13,8 @@ const DEFAULT_SETTINGS = window.DEFAULT_SETTINGS || {
   rateLimit: 0.5,
   skipDownloaded: true,
   preferPreview: false,
-  skipVideos: false,
+  mediaFilter: 'all',
+  gifAsVideo: false,
   expandGalleries: false,
   galleryPaginate: true,
   batchSize: 10,
@@ -67,11 +68,17 @@ function setRichText(el, value) {
 // Settings panel values kept per gallery (see defaults.js). Same defaults for
 // every gallery; the fallback mirrors defaults.js in case it failed to load.
 const GALLERY_SETTINGS = window.GALLERY_SETTINGS || {
-  keys: ['rateLimit', 'skipDownloaded', 'preferPreview', 'skipVideos', 'expandGalleries', 'galleryPaginate', 'batchSize'],
+  keys: ['rateLimit', 'skipDownloaded', 'preferPreview', 'gifAsVideo', 'expandGalleries', 'galleryPaginate', 'batchSize'],
   forGallery(stored, gallery) {
     const own = stored?.gallerySettings?.[gallery] || {};
     return Object.fromEntries(this.keys.map((k) => [k, own[k] ?? stored?.[k] ?? DEFAULT_SETTINGS[k]]));
   },
+};
+
+// Toolbar media filter, shared by every gallery (see defaults.js).
+const MEDIA_FILTER = window.MEDIA_FILTER || {
+  values: ['all', 'images', 'videos'],
+  resolve: (stored) => (['all', 'images', 'videos'].includes(stored?.mediaFilter) ? stored.mediaFilter : 'all'),
 };
 
 async function loadSettings() {
@@ -80,8 +87,16 @@ async function loadSettings() {
     uiLang: detectBrowserLanguage(),
     maxDate: '',
   };
-  const stored = await brw.storage.local.get([...Object.keys(defaults), 'gallerySettings']);
+  const stored = await brw.storage.local.get([...Object.keys(defaults), 'gallerySettings', 'skipVideos']);
   state.settings = { ...defaults, ...stored };
+  // The "Skip videos" checkbox of 1.1.1 became the toolbar media filter: a
+  // ticked box for the selected gallery starts as "Only images".
+  state.settings.mediaFilter = MEDIA_FILTER.resolve(stored);
+  if (stored.mediaFilter !== state.settings.mediaFilter) {
+    await brw.storage.local.set({ mediaFilter: state.settings.mediaFilter });
+  }
+  delete state.settings.skipVideos;
+  if ('skipVideos' in stored) await brw.storage.local.remove('skipVideos');
   // Every gallery gets its own complete copy; values saved before settings
   // became per gallery seed all three, then the old shared keys are removed.
   state.settings.gallerySettings = Object.fromEntries(SUPPORTED_GALLERIES
@@ -139,7 +154,7 @@ function renderGallerySettings() {
   $('rateLimit').value = s.rateLimit;
   $('skipDownloaded').checked = s.skipDownloaded !== false;
   $('preferPreview').checked = s.preferPreview === true;
-  $('skipVideos').checked = s.skipVideos === true;
+  $('gifAsVideo').checked = s.gifAsVideo === true;
   $('expandGalleries').checked = s.expandGalleries === true;
   $('galleryPaginate').checked = s.galleryPaginate !== false;
   $('batchSize').value = s.batchSize ?? DEFAULT_SETTINGS.batchSize;
@@ -166,8 +181,12 @@ function applyTranslations() {
   $('skipDownloadedLabel').title = t(lang, 'skipDownloadedTitle');
   setText($('preferPreviewLabel'), t(lang, 'preferPreviewLabel'));
   $('preferPreviewLabel').title = t(lang, 'preferPreviewTitle');
-  setText($('skipVideosLabel'), t(lang, 'skipVideosLabel'));
-  $('skipVideosLabel').title = t(lang, 'skipVideosTitle');
+  setText($('gifAsVideoLabel'), t(lang, 'gifAsVideoLabel'));
+  $('gifAsVideoLabel').title = t(lang, 'gifAsVideoTitle');
+  $('mediaFilterSelect').title = t(lang, 'mediaFilterLabel');
+  setText($('mediaFilterSelect').querySelector('option[value="all"]'), t(lang, 'mediaFilterAll'));
+  setText($('mediaFilterSelect').querySelector('option[value="images"]'), t(lang, 'mediaFilterImages'));
+  setText($('mediaFilterSelect').querySelector('option[value="videos"]'), t(lang, 'mediaFilterVideos'));
   setText($('expandGalleriesLabel'), t(lang, 'expandGalleriesLabel'));
   $('expandGalleriesLabel').title = t(lang, 'expandGalleriesTitle');
   setText($('galleryPaginateLabel'), t(lang, 'galleryPaginateLabel'));
@@ -235,6 +254,13 @@ function initGallerySelect() {
     renderGallerySettings();
     applyTranslations();
   });
+}
+
+/** Toolbar choice of what to download, shared by every gallery (like the max date). */
+function initMediaFilterSelect() {
+  const select = $('mediaFilterSelect');
+  select.value = MEDIA_FILTER.values.includes(state.settings.mediaFilter) ? state.settings.mediaFilter : 'all';
+  select.addEventListener('change', () => saveSettings({ mediaFilter: select.value }));
 }
 
 function createPathInput(label, key, kind) {
@@ -308,7 +334,7 @@ function bindSettingsPanel() {
   });
 
   // Each checkbox belongs to the gallery selected when it is changed.
-  ['skipDownloaded', 'preferPreview', 'skipVideos', 'expandGalleries', 'galleryPaginate'].forEach((key) => {
+  ['skipDownloaded', 'preferPreview', 'gifAsVideo', 'expandGalleries', 'galleryPaginate'].forEach((key) => {
     $(key).addEventListener('change', async () => {
       await saveGallerySettings({ [key]: $(key).checked });
     });
@@ -850,6 +876,7 @@ function applyLoadedSettings() {
   updateDatePickerInput();
   initUiLangSelect();
   initGallerySelect();
+  initMediaFilterSelect();
   renderGallerySettings();
   applyTranslations();
 }
